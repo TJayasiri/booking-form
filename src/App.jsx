@@ -230,6 +230,7 @@ export default function BookingFormApp() {
             <button onClick={() => fileInputRef.current?.click()} className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">Load Draft</button>
             <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={loadJson} />
             <button onClick={printPage} className="px-3 py-2 rounded-xl bg-neutral-900 text-white text-sm">Print</button>
+            <button className="px-3 py-2 rounded-xl border border-brand text-brand hover:bg-brand/10 text-sm">Print</button>
           </div>
         </div>
       </header>
