@@ -2,8 +2,71 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body, #root { height: 100%; }
+html, body, #root {
+  height: 100%;
+}
 
-/* make print & invalid state nicer */
-.input-invalid { border-color:#dc2626 !important; }
-.input-invalid:focus { outline: none; box-shadow: 0 0 0 2px rgba(220,38,38,.2); }
+/* Highlight invalid/required fields */
+.input-invalid {
+  border-color: #dc2626 !important; /* Tailwind red-600 */
+}
+.input-invalid:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, .2);
+}
+
+/* Print-friendly adjustments */
+@media print {
+  /* Force colors in print */
+  body {
+    color: #111;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Page margins */
+  @page {
+    margin: 16mm;
+  }
+
+  /* Hide UI-only elements in print */
+  .print\:hidden,
+  header,
+  footer,
+  button,
+  input[type="file"] {
+    display: none !important;
+  }
+
+  /* Stronger borders for printed cards/sections */
+  section,
+  .border {
+    border-color: #000 !important;
+  }
+
+  /* Make form fields look like plain text in print */
+  input,
+  textarea,
+  select {
+    border: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+
+  /* Prevent page breaks inside cards */
+  section,
+  .rounded-2xl {
+    break-inside: avoid;
+  }
+}
+
+/* Utility: Hide element in print */
+.no-print {
+  display: block;
+}
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
