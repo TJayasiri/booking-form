@@ -4,10 +4,9 @@ import Logo from "./assets/greenleaf-logo.svg";
 
 /**
  * Greenleaf — Online Service Booking Form (v3, QR-ready)
- * - Clean, modern, mobile-friendly, printable
- * - Multi-step wizard with validation
- * - Auto-generate Reference ID + QR code (replaces barcode)
- * - Save/Load as JSON, Print-friendly layout
+ * - Multi-step with validation
+ * - Auto Reference ID + QR
+ * - Save/Load JSON, Print-friendly
  */
 
 export default function BookingFormApp() {
@@ -18,6 +17,10 @@ export default function BookingFormApp() {
     const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
     return `GLB-${y}-${stamp}-${rand}`;
   };
+
+  // required-field UI state
+  const [touched, setTouched] = useState({});
+  const mark = (name) => setTouched((t) => ({ ...t, [name]: true }));
 
   const [step, setStep] = useState(1);
   const [refId, setRefId] = useState(genRef());
@@ -87,7 +90,7 @@ export default function BookingFormApp() {
     return keys.reduce((acc, k) => acc + (Number(counts[k]?.[key] || 0)), 0);
   }
 
-  // ----- Validation
+  // ----- Validation (minimal)
   const basicValid = useMemo(() => {
     const m = form.meta; const r = form.requester; const s = form.supplier;
     return r.company && r.contact && r.email &&
@@ -129,28 +132,29 @@ export default function BookingFormApp() {
 
   // ----- Submit (replace with API integration)
   const onSubmit = () => {
+    // mark required fields as touched to show red
+    ["requester.company","requester.contact","requester.email","supplier.company","supplier.contact","supplier.email","meta.dateOrWindow"]
+      .forEach(mark);
     if (!basicValid) { alert("Please complete required fields and accept Terms."); return; }
     setShowQR(true);
     setStep(4);
   };
 
-  const qrValue = `https://greenleafassurance.com/booking/${encodeURIComponent(refId)}`;
+  // point to your live subdomain
+  const qrValue = `https://booking.greenleafassurance.com/?ref=${encodeURIComponent(refId)}`;
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
       {/* Header */}
       <header className="sticky top-0 z-40 backdrop-blur bg-white/80 border-b border-neutral-200">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
-          {/* Brand logo */}
           <img src={Logo} alt="Greenleaf Assurance" className="h-8 md:h-9 select-none" />
-
           <div className="flex-1">
             <h1 className="text-lg md:text-xl font-semibold leading-tight">Greenleaf – Service Booking Form</h1>
             <p className="text-xs md:text-sm text-neutral-500">
               EFNET-QMS 005 · v3.0 · Reference <span className="font-mono">{refId}</span>
             </p>
           </div>
-
           <div className="flex items-center gap-2 print:hidden">
             <button onClick={() => { setRefId(genRef()); setShowQR(false); }}
                     className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">New Ref</button>
@@ -174,12 +178,12 @@ export default function BookingFormApp() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         {step === 1 && (
           <SectionCard title="1 — Audit Information & Platform Data">
-            <AuditMeta form={form} setForm={setForm} />
+            <AuditMeta form={form} setForm={setForm} touched={touched} mark={mark} />
           </SectionCard>
         )}
         {step === 2 && (
           <SectionCard title="2 — Parties & Contacts">
-            <Parties form={form} setForm={setForm} />
+            <Parties form={form} setForm={setForm} touched={touched} mark={mark} />
           </SectionCard>
         )}
         {step === 3 && (
@@ -303,9 +307,12 @@ function Checkbox({ className = "", ...props }) {
 }
 function NumberInput(props){ return <Input type="number" min={0} step={1} {...props} /> }
 
-function AuditMeta({ form, setForm }) {
+function AuditMeta({ form, setForm, touched, mark }) {
   const m = form.meta;
   const set = (patch) => setForm((prev) => ({ ...prev, meta: { ...prev.meta, ...patch } }));
+
+  // validity: either auditDate OR both windowStart + windowEnd
+  const dateMissing = !(m.auditDate || (m.windowStart && m.windowEnd));
 
   return (
     <div className="space-y-6">
@@ -331,13 +338,31 @@ function AuditMeta({ form, setForm }) {
       {/* Dates */}
       <div className="grid md:grid-cols-3 gap-4">
         <Field label="Audit Date">
-          <Input type="date" value={m.auditDate} onChange={(e)=> set({ auditDate: e.target.value })} />
+          <Input
+            type="date"
+            value={m.auditDate}
+            onChange={(e)=> set({ auditDate: e.target.value })}
+            onBlur={()=> mark("meta.dateOrWindow")}
+            className={(touched["meta.dateOrWindow"] && dateMissing) ? "input-invalid" : ""}
+          />
         </Field>
         <Field label="Window Start" note="(optional if Audit Date given)">
-          <Input type="date" value={m.windowStart} onChange={(e)=> set({ windowStart: e.target.value })} />
+          <Input
+            type="date"
+            value={m.windowStart}
+            onChange={(e)=> set({ windowStart: e.target.value })}
+            onBlur={()=> mark("meta.dateOrWindow")}
+            className={(touched["meta.dateOrWindow"] && dateMissing) ? "input-invalid" : ""}
+          />
         </Field>
         <Field label="Window End">
-          <Input type="date" value={m.windowEnd} onChange={(e)=> set({ windowEnd: e.target.value })} />
+          <Input
+            type="date"
+            value={m.windowEnd}
+            onChange={(e)=> set({ windowEnd: e.target.value })}
+            onBlur={()=> mark("meta.dateOrWindow")}
+            className={(touched["meta.dateOrWindow"] && dateMissing) ? "input-invalid" : ""}
+          />
         </Field>
       </div>
 
@@ -366,12 +391,18 @@ function AuditMeta({ form, setForm }) {
           data={form.requester}
           onChange={(patch) => setForm((prev)=> ({ ...prev, requester: { ...prev.requester, ...patch } }))}
           required
+          prefix="requester"
+          touched={touched}
+          mark={mark}
         />
         <ContactBlock
           title="Supplier / Factory"
           data={form.supplier}
           onChange={(patch) => setForm((prev)=> ({ ...prev, supplier: { ...prev.supplier, ...patch } }))}
           required
+          prefix="supplier"
+          touched={touched}
+          mark={mark}
         />
       </div>
     </div>
@@ -422,20 +453,28 @@ function Parties({ form, setForm }) {
   );
 }
 
-function ContactBlock({ title, data, onChange, required=false }) {
+function ContactBlock({ title, data, onChange, required=false, prefix="", touched={}, mark=()=>{} }) {
   const set = (patch) => onChange(patch);
+  const req = (k) => (touched[`${prefix}.${k}`] && !data[k]) ? "input-invalid" : "";
+
   return (
     <div className="grid grid-cols-1 gap-3">
       {title && <div className="text-sm font-medium text-neutral-700">{title}</div>}
-      <Field label="Company Name" required={required}><Input value={data.company || ""} onChange={(e)=> set({ company: e.target.value })} /></Field>
+      <Field label="Company Name" required={required}>
+        <Input value={data.company || ""} onChange={(e)=> set({ company: e.target.value })} onBlur={()=> mark(`${prefix}.company`)} className={req("company")} />
+      </Field>
       <Field label="Address"><Textarea rows={2} value={data.address || ""} onChange={(e)=> set({ address: e.target.value })} /></Field>
       <div className="grid md:grid-cols-2 gap-3">
-        <Field label="Contact Person" required={required}><Input value={data.contact || ""} onChange={(e)=> set({ contact: e.target.value })} /></Field>
+        <Field label="Contact Person" required={required}>
+          <Input value={data.contact || ""} onChange={(e)=> set({ contact: e.target.value })} onBlur={()=> mark(`${prefix}.contact`)} className={req("contact")} />
+        </Field>
         <Field label="Job Title"><Input value={data.title || ""} onChange={(e)=> set({ title: e.target.value })} /></Field>
       </div>
       <div className="grid md:grid-cols-3 gap-3">
         <Field label="Phone"><Input value={data.phone || ""} onChange={(e)=> set({ phone: e.target.value })} /></Field>
-        <Field label="Email" required={required}><Input type="email" value={data.email || ""} onChange={(e)=> set({ email: e.target.value })} /></Field>
+        <Field label="Email" required={required}>
+          <Input type="email" value={data.email || ""} onChange={(e)=> set({ email: e.target.value })} onBlur={()=> mark(`${prefix}.email`)} className={req("email")} />
+        </Field>
         {"gps" in data && (
           <Field label="GPS"><Input placeholder="Latitude, Longitude" value={data.gps || ""} onChange={(e)=> set({ gps: e.target.value })} /></Field>
         )}
@@ -514,23 +553,16 @@ function Review({ form, setForm, refId, ackTnC, setAckTnC, showQR, qrValue }) {
     <div className="space-y-6">
       <div className="rounded-2xl border border-neutral-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-neutral-200 flex items-center justify-between">
-          <div className="font-medium">3.3 — General Terms & Conditions</div>
-          <span className="text-xs text-neutral-500">Service execution windows & reporting timelines</span>
+          <div className="font-medium">3.3 — Terms & Conditions</div>
+          <a href="/terms.pdf" target="_blank" rel="noreferrer" className="text-sm text-brand hover:underline print:hidden">
+            Open printable T&Cs
+          </a>
         </div>
-        <div className="p-4 text-sm leading-6 space-y-1">
-          <p>• All services executed per contract; where absent, Greenleaf standard Terms apply.</p>
-          <p>• Services scheduled within <b>14 business days</b> of receiving a <b>completed Booking Form</b>.</p>
-          <p>• Reports delivered within <b>3 business days</b> after onsite completion.</p>
-          <p>• Factory to review and confirm: <i>Services Agreement</i>, <i>Code of Ethics</i>, and <i>Non-Disclosure</i> prior to execution.</p>
-          <p>• Full access to all factory areas (incl. dormitories and canteens) and documents per Document Request List.</p>
-          <p>• Confidential interview space must be provided.</p>
-          <p>• Observations can be discussed during on-site CAP review; factual elements may not be altered.</p>
-          <p>• Cancellations within <b>72 hours</b> of service start will be billed in full incl. non-refundable travel costs.</p>
-          <p>• By submitting, you agree to our Terms of Service and policies.</p>
-          <div className="mt-2 flex items-center gap-2">
+        <div className="p-4 text-sm">
+          <label className="inline-flex items-center gap-2">
             <input id="ack" type="checkbox" className="w-4 h-4" checked={ackTnC} onChange={(e)=> setAckTnC(e.target.checked)} />
-            <label htmlFor="ack" className="text-sm">I acknowledge and accept the terms and conditions.</label>
-          </div>
+            <span>I have read and accept the Terms & Conditions.</span>
+          </label>
         </div>
       </div>
 
