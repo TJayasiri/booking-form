@@ -1,3 +1,9 @@
+// at top
+import Logo from './assets/greenleaf-logo.svg';
+
+// in the header JSX, replace the small GL box:
+{/* <div className="w-10 h-10 rounded-2xl bg-emerald-600 ...">GL</div> */}
+<img src={Logo} alt="Greenleaf Assurance" className="h-8 md:h-9 select-none" />
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
