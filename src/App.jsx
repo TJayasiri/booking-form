@@ -224,6 +224,27 @@ export default function BookingFormApp() {
             <a className="text-brand hover:underline" href="mailto:info@greenleafassurance.com">info@greenleafassurance.com</a>
           </div>
         </footer>
+
+        {/* Print ALL sections regardless of step */}
+        <div className="hidden print:block max-w-6xl mx-auto px-4 py-6 space-y-6">
+          <SectionCard title="1 — Audit Information & Platform Data">
+            <AuditMeta form={form} setForm={setForm} />
+          </SectionCard>
+          <SectionCard title="2 — Parties & Contacts">
+            <Parties form={form} setForm={setForm} />
+          </SectionCard>
+          <SectionCard title="3 — Manday Calculation & Special Conditions">
+            <Manday form={form} setForm={setForm}
+                    totals={{ totalMale, totalFemale, totalAll }} />
+          </SectionCard>
+          <SectionCard title="4 — Review, Acknowledgement & QR">
+            <Review form={form} setForm={setForm} refId={refId}
+                    ackTnC={ackTnC} setAckTnC={setAckTnC}
+                    showQR={true}  /* ensure QR shows in print */
+                    qrValue={qrValue} />
+          </SectionCard>
+        </div>
+        
       </main>
 
       {/* Print QR badge at top of print */}
