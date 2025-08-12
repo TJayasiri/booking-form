@@ -9,46 +9,6 @@ import Logo from "./assets/greenleaf-logo.svg";
  * - Save/Load JSON, Print-friendly
  */
 
-useEffect(() => {
-  const r = new URLSearchParams(window.location.search).get('ref');
-  if (!r) return;
-  (async () => {
-    try {
-      const res = await fetch(`/.netlify/functions/get-booking?ref=${encodeURIComponent(r)}`);
-      if (!res.ok) return;
-      const data = await res.json();       // { refId, form, ts }
-      setRefId(data.refId || r);
-      setForm(data.form || form);
-      setShowQR(true);
-      setStep(4);                          // jump to review with QR
-    } catch { /* ignore */ }
-  })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
-
-
-const onSubmit = async () => {
-  if (!basicValid) { alert("Please complete required fields and accept Terms."); return; }
-  const payload = { refId, form, ts: new Date().toISOString() };
-  try {
-    await fetch('/.netlify/functions/save-booking', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    // update URL so QR deep-link matches this booking
-    const url = new URL(window.location.href);
-    url.searchParams.set('ref', refId);
-    window.history.replaceState(null, '', url.toString());
-
-    setShowQR(true);
-    setStep(4);
-  } catch {
-    alert('Could not save booking. You can still print, or try again.');
-  }
-};
-
-
 export default function BookingFormApp() {
   // ----- Helpers
   const genRef = () => {
@@ -264,27 +224,6 @@ export default function BookingFormApp() {
             <a className="text-brand hover:underline" href="mailto:info@greenleafassurance.com">info@greenleafassurance.com</a>
           </div>
         </footer>
-
-        {/* Print ALL sections regardless of step */}
-        <div className="hidden print:block max-w-6xl mx-auto px-4 py-6 space-y-6">
-          <SectionCard title="1 — Audit Information & Platform Data">
-            <AuditMeta form={form} setForm={setForm} />
-          </SectionCard>
-          <SectionCard title="2 — Parties & Contacts">
-            <Parties form={form} setForm={setForm} />
-          </SectionCard>
-          <SectionCard title="3 — Manday Calculation & Special Conditions">
-            <Manday form={form} setForm={setForm}
-                    totals={{ totalMale, totalFemale, totalAll }} />
-          </SectionCard>
-          <SectionCard title="4 — Review, Acknowledgement & QR">
-            <Review form={form} setForm={setForm} refId={refId}
-                    ackTnC={ackTnC} setAckTnC={setAckTnC}
-                    showQR={true}  /* ensure QR shows in print */
-                    qrValue={qrValue} />
-          </SectionCard>
-        </div>
-        
       </main>
 
       {/* Print QR badge at top of print */}

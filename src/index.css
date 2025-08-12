@@ -15,9 +15,6 @@ html, body, #root {
   box-shadow: 0 0 0 2px rgba(220, 38, 38, .2);
 }
 
-/* in index.css */
-.print\:hidden, header, footer, button, input[type="file"] { display: none !important; }
-
 /* Print-friendly adjustments */
 @media print {
   /* Force colors in print */
