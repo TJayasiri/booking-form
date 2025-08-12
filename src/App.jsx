@@ -9,6 +9,46 @@ import Logo from "./assets/greenleaf-logo.svg";
  * - Save/Load JSON, Print-friendly
  */
 
+useEffect(() => {
+  const r = new URLSearchParams(window.location.search).get('ref');
+  if (!r) return;
+  (async () => {
+    try {
+      const res = await fetch(`/.netlify/functions/get-booking?ref=${encodeURIComponent(r)}`);
+      if (!res.ok) return;
+      const data = await res.json();       // { refId, form, ts }
+      setRefId(data.refId || r);
+      setForm(data.form || form);
+      setShowQR(true);
+      setStep(4);                          // jump to review with QR
+    } catch { /* ignore */ }
+  })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+
+const onSubmit = async () => {
+  if (!basicValid) { alert("Please complete required fields and accept Terms."); return; }
+  const payload = { refId, form, ts: new Date().toISOString() };
+  try {
+    await fetch('/.netlify/functions/save-booking', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    // update URL so QR deep-link matches this booking
+    const url = new URL(window.location.href);
+    url.searchParams.set('ref', refId);
+    window.history.replaceState(null, '', url.toString());
+
+    setShowQR(true);
+    setStep(4);
+  } catch {
+    alert('Could not save booking. You can still print, or try again.');
+  }
+};
+
+
 export default function BookingFormApp() {
   // ----- Helpers
   const genRef = () => {
