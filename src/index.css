@@ -3,3 +3,7 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
+
+/* make print & invalid state nicer */
+.input-invalid { border-color:#dc2626 !important; }
+.input-invalid:focus { outline: none; box-shadow: 0 0 0 2px rgba(220,38,38,.2); }
