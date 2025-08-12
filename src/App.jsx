@@ -275,6 +275,12 @@ export default function BookingFormApp() {
             )}
           </div>
         </div>
+        <footer className="max-w-6xl mx-auto px-4 mt-4">
+          <div className="rounded-2xl border border-neutral-200 bg-white p-4 text-xs text-neutral-500 flex items-center justify-between shadow-card">
+            <span>© {new Date().getFullYear()} Greenleaf Assurance. All rights reserved.</span>
+            <a className="text-brand hover:underline" href="mailto:info@greenleafassurance.com">info@greenleafassurance.com</a>
+          </div>
+        </footer>
       </main>
 
       {/* Print QR badge at top of print */}
