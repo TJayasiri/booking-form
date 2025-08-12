@@ -1,24 +1,13 @@
-// at top
-import Logo from './assets/greenleaf-logo.svg';
-
-// in the header JSX, replace the small GL box:
-{/* <div className="w-10 h-10 rounded-2xl bg-emerald-600 ...">GL</div> */}
-<img src={Logo} alt="Greenleaf Assurance" className="h-8 md:h-9 select-none" />
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import Logo from "./assets/greenleaf-logo.svg";
 
 /**
  * Greenleaf — Online Service Booking Form (v3, QR-ready)
  * - Clean, modern, mobile-friendly, printable
  * - Multi-step wizard with validation
  * - Auto-generate Reference ID + QR code (replaces barcode)
- * - Copy "Same as above" data between sections
- * - Save/Load as JSON (for drafts), Print-friendly layout
- * - Minimal dependencies (Tailwind + qrcode.react)
- *
- * Notes:
- * - Wire this to your backend by replacing onSubmit() to POST to your API.
- * - QR encodes a deep-link `https://greenleafassurance.com/booking/<ref>` by default.
+ * - Save/Load as JSON, Print-friendly layout
  */
 
 export default function BookingFormApp() {
@@ -39,9 +28,9 @@ export default function BookingFormApp() {
   // ----- Core form state
   const [form, setForm] = useState(() => ({
     meta: {
-      auditType: "Initial", // Initial | Annual | Re-Audit | Other
+      auditType: "Initial",
       auditTypeOther: "",
-      auditDate: "", // single date if applicable
+      auditDate: "",
       windowStart: "",
       windowEnd: "",
       clientsExpected: "",
@@ -49,46 +38,10 @@ export default function BookingFormApp() {
       platformSite: "",
       factoryOrRequesterId: "",
     },
-    requester: {
-      company: "",
-      address: "",
-      contact: "",
-      title: "",
-      phone: "",
-      email: "",
-      other: "",
-      gps: "",
-    },
-    supplier: {
-      company: "",
-      address: "",
-      contact: "",
-      title: "",
-      phone: "",
-      email: "",
-      other: "",
-      gps: "",
-    },
-    vendor: {
-      sameAsSupplier: false,
-      company: "",
-      address: "",
-      contact: "",
-      title: "",
-      phone: "",
-      email: "",
-      other: "",
-    },
-    buyer: {
-      differentData: false,
-      company: "",
-      address: "",
-      contact: "",
-      title: "",
-      phone: "",
-      email: "",
-      other: "",
-    },
+    requester: { company: "", address: "", contact: "", title: "", phone: "", email: "", other: "", gps: "" },
+    supplier:  { company: "", address: "", contact: "", title: "", phone: "", email: "", other: "", gps: "" },
+    vendor:    { sameAsSupplier: false, company: "", address: "", contact: "", title: "", phone: "", email: "", other: "" },
+    buyer:     { differentData: false, company: "", address: "", contact: "", title: "", phone: "", email: "", other: "" },
     staffCounts: {
       production: { male: 0, female: 0 },
       permanent: { male: 0, female: 0 },
@@ -101,13 +54,8 @@ export default function BookingFormApp() {
     },
     special: { details: "" },
     ack: {
-      requesterName: "",
-      requesterTitle: "",
-      requesterDate: "",
-      requesterSignatureUrl: "",
-      glaName: "",
-      glaDate: "",
-      glaSignatureUrl: "",
+      requesterName: "", requesterTitle: "", requesterDate: "", requesterSignatureUrl: "",
+      glaName: "", glaDate: "", glaSignatureUrl: "",
     },
   }));
 
@@ -130,38 +78,22 @@ export default function BookingFormApp() {
     }
   }, [form.vendor.sameAsSupplier, form.supplier]);
 
-  const totalMale = useMemo(
-    () => sumMaleFemale(form.staffCounts, "male"),
-    [form.staffCounts]
-  );
-  const totalFemale = useMemo(
-    () => sumMaleFemale(form.staffCounts, "female"),
-    [form.staffCounts]
-  );
+  const totalMale = useMemo(() => sumMaleFemale(form.staffCounts, "male"), [form.staffCounts]);
+  const totalFemale = useMemo(() => sumMaleFemale(form.staffCounts, "female"), [form.staffCounts]);
   const totalAll = totalMale + totalFemale;
 
   function sumMaleFemale(counts, key) {
-    const keys = [
-      "production",
-      "permanent",
-      "temporary",
-      "migrant",
-      "contractors",
-      "homeworkers",
-      "management",
-    ];
+    const keys = ["production","permanent","temporary","migrant","contractors","homeworkers","management"];
     return keys.reduce((acc, k) => acc + (Number(counts[k]?.[key] || 0)), 0);
   }
 
-  // ----- Validation (minimal, extend as needed)
+  // ----- Validation
   const basicValid = useMemo(() => {
     const m = form.meta; const r = form.requester; const s = form.supplier;
-    return (
-      r.company && r.contact && r.email &&
-      s.company && s.contact && s.email &&
-      (m.auditDate || (m.windowStart && m.windowEnd)) &&
-      ackTnC
-    );
+    return r.company && r.contact && r.email &&
+           s.company && s.contact && s.email &&
+           (m.auditDate || (m.windowStart && m.windowEnd)) &&
+           ackTnC;
   }, [form, ackTnC]);
 
   // ----- Persistence helpers (JSON)
@@ -173,29 +105,22 @@ export default function BookingFormApp() {
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = `${refId}_booking.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      a.href = url; a.download = `${refId}_booking.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } finally {
       setSaving(false);
     }
   };
-
   const loadJson = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       try {
         const data = JSON.parse(reader.result);
         if (data.refId) setRefId(data.refId);
         if (data.form) setForm(data.form);
-      } catch (err) {
-        alert("Invalid JSON file.");
-      }
+      } catch { alert("Invalid JSON file."); }
     };
     reader.readAsText(file);
   };
@@ -204,10 +129,7 @@ export default function BookingFormApp() {
 
   // ----- Submit (replace with API integration)
   const onSubmit = () => {
-    if (!basicValid) {
-      alert("Please complete required fields and accept Terms.");
-      return;
-    }
+    if (!basicValid) { alert("Please complete required fields and accept Terms."); return; }
     setShowQR(true);
     setStep(4);
   };
@@ -219,18 +141,26 @@ export default function BookingFormApp() {
       {/* Header */}
       <header className="sticky top-0 z-40 backdrop-blur bg-white/80 border-b border-neutral-200">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white grid place-items-center font-bold">GL</div>
+          {/* Brand logo */}
+          <img src={Logo} alt="Greenleaf Assurance" className="h-8 md:h-9 select-none" />
+
           <div className="flex-1">
             <h1 className="text-lg md:text-xl font-semibold leading-tight">Greenleaf – Service Booking Form</h1>
-            <p className="text-xs md:text-sm text-neutral-500">EFNET-QMS 005 · v3.0 · Reference <span className="font-mono">{refId}</span></p>
+            <p className="text-xs md:text-sm text-neutral-500">
+              EFNET-QMS 005 · v3.0 · Reference <span className="font-mono">{refId}</span>
+            </p>
           </div>
+
           <div className="flex items-center gap-2 print:hidden">
-            <button onClick={() => { setRefId(genRef()); setShowQR(false); }} className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">New Ref</button>
-            <button onClick={saveJson} disabled={saving} className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">Save Draft</button>
-            <button onClick={() => fileInputRef.current?.click()} className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">Load Draft</button>
+            <button onClick={() => { setRefId(genRef()); setShowQR(false); }}
+                    className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">New Ref</button>
+            <button onClick={saveJson} disabled={saving}
+                    className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">Save Draft</button>
+            <button onClick={() => fileInputRef.current?.click()}
+                    className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">Load Draft</button>
             <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={loadJson} />
-            <button onClick={printPage} className="px-3 py-2 rounded-xl bg-neutral-900 text-white text-sm">Print</button>
-            <button className="px-3 py-2 rounded-xl border border-brand text-brand hover:bg-brand/10 text-sm">Print</button>
+            <button onClick={printPage}
+                    className="px-3 py-2 rounded-xl border border-brand text-brand hover:bg-brand/10 text-sm">Print</button>
           </div>
         </div>
       </header>
@@ -265,19 +195,27 @@ export default function BookingFormApp() {
 
         {/* Footer Controls */}
         <div className="flex items-center justify-between gap-3 sticky bottom-0 py-4 bg-gradient-to-t from-white to-white/80 backdrop-blur border-t border-neutral-200 print:hidden">
-          <div className="text-xs text-neutral-500">Tip: Use <span className="font-semibold">Save Draft</span> to download a JSON you can load later.</div>
+          <div className="text-xs text-neutral-500">
+            Tip: Use <span className="font-semibold">Save Draft</span> to download a JSON you can load later.
+          </div>
           <div className="flex items-center gap-2">
-            <button disabled={step<=1} onClick={() => setStep((s) => Math.max(1, s-1))} className="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200">Back</button>
+            <button disabled={step<=1}
+                    onClick={() => setStep((s) => Math.max(1, s-1))}
+                    className="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200">Back</button>
             {step < 4 && (
-              <button onClick={() => setStep((s) => Math.min(4, s+1))} className="px-4 py-2 rounded-xl bg-emerald-600 text-white">Next</button>
+              <button onClick={() => setStep((s) => Math.min(4, s+1))}
+                      className="px-4 py-2 rounded-xl bg-brand text-white">Next</button>
             )}
             {step === 4 && (
-              <button onClick={onSubmit} className="px-4 py-2 rounded-xl bg-emerald-700 text-white">Generate QR & Submit</button>
+              <button onClick={onSubmit}
+                      className="px-4 py-2 rounded-xl bg-brand-dark text-white">Generate QR & Submit</button>
             )}
           </div>
         </div>
+
+        {/* Branded footer */}
         <footer className="max-w-6xl mx-auto px-4 mt-4">
-          <div className="rounded-2xl border border-neutral-200 bg-white p-4 text-xs text-neutral-500 flex items-center justify-between shadow-card">
+          <div className="rounded-2xl border border-neutral-200 bg-white p-4 text-xs text-neutral-500 flex items-center justify-between">
             <span>© {new Date().getFullYear()} Greenleaf Assurance. All rights reserved.</span>
             <a className="text-brand hover:underline" href="mailto:info@greenleafassurance.com">info@greenleafassurance.com</a>
           </div>
@@ -319,9 +257,15 @@ function Stepper({ step, setStep }) {
   return (
     <ol className="grid grid-cols-4 gap-2">
       {steps.map((s, i) => (
-        <li key={s.id} className={`group cursor-pointer select-none`} onClick={() => setStep(s.id)}>
-          <div className={`flex items-center gap-2 p-2 rounded-xl border text-sm ${step === s.id ? "bg-emerald-50 border-emerald-300 text-emerald-800" : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"}`}>
-            <span className={`w-6 h-6 grid place-items-center rounded-lg font-semibold ${step === s.id ? "bg-emerald-600 text-white" : "bg-neutral-100"}`}>{i+1}</span>
+        <li key={s.id} className="group cursor-pointer select-none" onClick={() => setStep(s.id)}>
+          <div className={`flex items-center gap-2 p-2 rounded-xl border text-sm ${
+              step === s.id
+                ? "bg-brand/10 border-brand/50 text-brand-dark"
+                : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+            }`}>
+            <span className={`w-6 h-6 grid place-items-center rounded-lg font-semibold ${
+                step === s.id ? "bg-brand text-white" : "bg-neutral-100"
+            }`}>{i+1}</span>
             <span className="truncate">{s.label}</span>
           </div>
         </li>
@@ -344,19 +288,20 @@ function Field({ label, required=false, children, note }) {
 }
 
 function Input({ className = "", ...props }) {
-  return <input {...props} className={`w-full px-3 py-2 rounded-xl border border-neutral-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 ${className}`} />
+  return <input {...props}
+    className={`w-full px-3 py-2 rounded-xl border border-neutral-300 focus:outline-none focus:ring-2 focus:ring-brand/40 ${className}`} />;
 }
 function Textarea({ className = "", ...props }) {
-  return <textarea {...props} className={`w-full px-3 py-2 rounded-xl border border-neutral-300 focus:outline-none focus:ring-2 focus:ring-emerald-300 ${className}`} />
+  return <textarea {...props}
+    className={`w-full px-3 py-2 rounded-xl border border-neutral-300 focus:outline-none focus:ring-2 focus:ring-brand/40 ${className}`} />;
 }
 function Checkbox({ className = "", ...props }) {
   return (
-    <input type="checkbox" {...props} className={`w-4 h-4 rounded border-neutral-300 text-emerald-600 focus:ring-emerald-300 ${className}`} />
+    <input type="checkbox" {...props}
+           className={`w-4 h-4 rounded border-neutral-300 text-brand focus:ring-brand/40 ${className}`} />
   );
 }
-function NumberInput(props){
-  return <Input type="number" min={0} step={1} {...props} />
-}
+function NumberInput(props){ return <Input type="number" min={0} step={1} {...props} /> }
 
 function AuditMeta({ form, setForm }) {
   const m = form.meta;
@@ -368,7 +313,7 @@ function AuditMeta({ form, setForm }) {
       <div className="grid md:grid-cols-3 gap-4">
         <Field label="Audit Type" required>
           <div className="flex flex-wrap items-center gap-3">
-            {['Initial','Annual','Re-Audit','Other'].map((t) => (
+            {["Initial","Annual","Re-Audit","Other"].map((t) => (
               <label key={t} className="flex items-center gap-2">
                 <input type="radio" name="auditType" value={t} checked={m.auditType===t} onChange={(e)=> set({ auditType: e.target.value })} />
                 <span className="text-sm">{t}</span>
@@ -376,7 +321,7 @@ function AuditMeta({ form, setForm }) {
             ))}
           </div>
         </Field>
-        {m.auditType === 'Other' && (
+        {m.auditType === "Other" && (
           <Field label="If Other, specify">
             <Input value={m.auditTypeOther} onChange={(e)=> set({ auditTypeOther: e.target.value })} placeholder="e.g., Special Follow-up" />
           </Field>
@@ -414,7 +359,7 @@ function AuditMeta({ form, setForm }) {
         </div>
       </div>
 
-      {/* Requester (lead account) */}
+      {/* Requester & Supplier */}
       <div className="grid md:grid-cols-2 gap-4">
         <ContactBlock
           title="Requester (Lead Account)"
@@ -467,7 +412,9 @@ function Parties({ form, setForm }) {
               onChange={(patch) => setForm((prev)=> ({ ...prev, buyer: { ...prev.buyer, ...patch } }))}
             />
           ) : (
-            <div className="text-sm text-neutral-500 border border-dashed rounded-xl p-4">If unchecked, billing will follow <span className="font-medium">Requester</span> details.</div>
+            <div className="text-sm text-neutral-500 border border-dashed rounded-xl p-4">
+              If unchecked, billing will follow <span className="font-medium">Requester</span> details.
+            </div>
           )}
         </div>
       </div>
@@ -480,20 +427,20 @@ function ContactBlock({ title, data, onChange, required=false }) {
   return (
     <div className="grid grid-cols-1 gap-3">
       {title && <div className="text-sm font-medium text-neutral-700">{title}</div>}
-      <Field label="Company Name" required={required}><Input value={data.company || ''} onChange={(e)=> set({ company: e.target.value })} /></Field>
-      <Field label="Address"><Textarea rows={2} value={data.address || ''} onChange={(e)=> set({ address: e.target.value })} /></Field>
+      <Field label="Company Name" required={required}><Input value={data.company || ""} onChange={(e)=> set({ company: e.target.value })} /></Field>
+      <Field label="Address"><Textarea rows={2} value={data.address || ""} onChange={(e)=> set({ address: e.target.value })} /></Field>
       <div className="grid md:grid-cols-2 gap-3">
-        <Field label="Contact Person" required={required}><Input value={data.contact || ''} onChange={(e)=> set({ contact: e.target.value })} /></Field>
-        <Field label="Job Title"><Input value={data.title || ''} onChange={(e)=> set({ title: e.target.value })} /></Field>
+        <Field label="Contact Person" required={required}><Input value={data.contact || ""} onChange={(e)=> set({ contact: e.target.value })} /></Field>
+        <Field label="Job Title"><Input value={data.title || ""} onChange={(e)=> set({ title: e.target.value })} /></Field>
       </div>
       <div className="grid md:grid-cols-3 gap-3">
-        <Field label="Phone"><Input value={data.phone || ''} onChange={(e)=> set({ phone: e.target.value })} /></Field>
-        <Field label="Email" required={required}><Input type="email" value={data.email || ''} onChange={(e)=> set({ email: e.target.value })} /></Field>
+        <Field label="Phone"><Input value={data.phone || ""} onChange={(e)=> set({ phone: e.target.value })} /></Field>
+        <Field label="Email" required={required}><Input type="email" value={data.email || ""} onChange={(e)=> set({ email: e.target.value })} /></Field>
         {"gps" in data && (
-          <Field label="GPS"><Input placeholder="Latitude, Longitude" value={data.gps || ''} onChange={(e)=> set({ gps: e.target.value })} /></Field>
+          <Field label="GPS"><Input placeholder="Latitude, Longitude" value={data.gps || ""} onChange={(e)=> set({ gps: e.target.value })} /></Field>
         )}
       </div>
-      <Field label="Other"><Input value={data.other || ''} onChange={(e)=> set({ other: e.target.value })} /></Field>
+      <Field label="Other"><Input value={data.other || ""} onChange={(e)=> set({ other: e.target.value })} /></Field>
     </div>
   );
 }
@@ -520,9 +467,7 @@ function Manday({ form, setForm, totals }) {
         <div className="p-4 grid md:grid-cols-2 gap-6">
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-3 text-xs font-medium text-neutral-500">
-              <div>Category</div>
-              <div>Male</div>
-              <div>Female</div>
+              <div>Category</div><div>Male</div><div>Female</div>
             </div>
             <Row name="Production workers" keyName="production" />
             <Row name="Permanent workers" keyName="permanent" />
@@ -559,18 +504,9 @@ function Manday({ form, setForm, totals }) {
 
 function Review({ form, setForm, refId, ackTnC, setAckTnC, showQR, qrValue }) {
   const patchAck = (patch, side) => {
-    const updates = side === 'requester'
-      ? {
-          requesterName: patch.name,
-          requesterTitle: patch.title,
-          requesterDate: patch.date,
-          requesterSignatureUrl: patch.signatureUrl,
-        }
-      : {
-          glaName: patch.name,
-          glaDate: patch.date,
-          glaSignatureUrl: patch.signatureUrl,
-        };
+    const updates = side === "requester"
+      ? { requesterName: patch.name, requesterTitle: patch.title, requesterDate: patch.date, requesterSignatureUrl: patch.signatureUrl }
+      : { glaName: patch.name, glaDate: patch.date, glaSignatureUrl: patch.signatureUrl };
     setForm(prev => ({ ...prev, ack: { ...prev.ack, ...updates }}));
   };
 
@@ -599,8 +535,8 @@ function Review({ form, setForm, refId, ackTnC, setAckTnC, showQR, qrValue }) {
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        <AckCard title="3.4 — Service Requester Acknowledgement" data={form.ack} side="requester" onChange={(patch)=> patchAck(patch, 'requester')} />
-        <AckCard title="Greenleaf Assurance Team" data={form.ack} side="gla" onChange={(patch)=> patchAck(patch, 'gla')} />
+        <AckCard title="3.4 — Service Requester Acknowledgement" data={form.ack} side="requester" onChange={(patch)=> patchAck(patch, "requester")} />
+        <AckCard title="Greenleaf Assurance Team" data={form.ack} side="gla" onChange={(patch)=> patchAck(patch, "gla")} />
       </div>
 
       <div className="rounded-2xl border border-neutral-200 p-4 flex flex-col md:flex-row items-center justify-between gap-4">
@@ -613,7 +549,7 @@ function Review({ form, setForm, refId, ackTnC, setAckTnC, showQR, qrValue }) {
           {showQR ? (
             <div className="bg-white rounded-xl border p-3 text-center">
               <QRCodeSVG value={qrValue} size={140} />
-              <div className="text-[10px] font-mono mt-1">{qrValue.replace(/^https?:\/\//, '')}</div>
+              <div className="text-[10px] font-mono mt-1">{qrValue.replace(/^https?:\/\//, "")}</div>
             </div>
           ) : (
             <div className="text-sm text-neutral-500">QR will appear here after submission.</div>
@@ -633,23 +569,23 @@ function AckCard({ title, data, side, onChange }){
   const [signatureUrl, setSignatureUrl] = useState("");
 
   useEffect(() => {
-    if (side === 'requester'){
-      setName(data.requesterName||'');
-      setTitleRole(data.requesterTitle||'');
-      setDate(data.requesterDate||'');
-      setSignatureUrl(data.requesterSignatureUrl||'');
+    if (side === "requester"){
+      setName(data.requesterName||"");
+      setTitleRole(data.requesterTitle||"");
+      setDate(data.requesterDate||"");
+      setSignatureUrl(data.requesterSignatureUrl||"");
     } else {
-      setName(data.glaName||'');
-      setTitleRole('');
-      setDate(data.glaDate||'');
-      setSignatureUrl(data.glaSignatureUrl||'');
+      setName(data.glaName||"");
+      setTitleRole("");
+      setDate(data.glaDate||"");
+      setSignatureUrl(data.glaSignatureUrl||"");
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     onChange({ name, title: titleRole, date, signatureUrl });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, titleRole, date, signatureUrl]);
 
   const onSignatureUpload = (e) => {
@@ -665,7 +601,7 @@ function AckCard({ title, data, side, onChange }){
       <div className="px-4 py-3 border-b border-neutral-200 font-medium">{title}</div>
       <div className="p-4 grid md:grid-cols-2 gap-4 items-end">
         <Field label="Name"><Input value={name} onChange={(e)=> setName(e.target.value)} /></Field>
-        {side === 'requester' && (
+        {side === "requester" && (
           <Field label="Title / Role"><Input value={titleRole} onChange={(e)=> setTitleRole(e.target.value)} /></Field>
         )}
         <Field label="Date"><Input type="date" value={date} onChange={(e)=> setDate(e.target.value)} /></Field>
