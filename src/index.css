@@ -70,3 +70,8 @@ html, body, #root {
     display: none !important;
   }
 }
+
+.input-invalid {
+  border-color: #ef4444 !important; /* red-500 */
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}

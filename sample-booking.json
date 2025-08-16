@@ -1,0 +1,80 @@
+{
+  "refId": "GLB-25-0001",
+  "ts": "2025-08-13T09:15:00Z",
+  "meta": {
+    "auditType": "Consulting",
+    "auditTypeOther": "Sustainability Roadmap",
+    "fulfillment": "Window",
+    "auditDate": "",
+    "windowStart": "2025-09-10",
+    "windowEnd": "2025-09-15",
+    "services": ["SMETA", "Training", "Other"],
+    "clientsExpected": "Brand A, Brand B",
+    "platformRef": "ZC-987654",
+    "platformSite": "ZS-54321",
+    "factoryOrRequesterId": "FAC-2025-001"
+  },
+  "requester": {
+    "company": "Greenleaf Assurance HQ",
+    "address": "123 Compliance St, Phnom Penh, Cambodia",
+    "contact": "Thashika Jayasiri",
+    "title": "Director",
+    "phone": "+855 12345678",
+    "email": "thashikaj@greenleafassurance.com",
+    "other": "Main point of contact",
+    "gps": "11.5564,104.9282"
+  },
+  "supplier": {
+    "sameAsRequester": false,
+    "company": "ABC Manufacturing Ltd.",
+    "address": "Factory Zone 4, Phnom Penh SEZ",
+    "contact": "Mr. Sokha",
+    "title": "Factory Manager",
+    "phone": "+855 98765432",
+    "email": "sokha@abcmfg.com",
+    "other": "Preferred contact for site access",
+    "gps": "11.5568,104.9311"
+  },
+  "vendor": {
+    "sameAsSupplier": false,
+    "company": "Global Sourcing Co.",
+    "address": "88 Supplier Rd, Ho Chi Minh City, Vietnam",
+    "contact": "Ms. Lan",
+    "title": "Vendor Manager",
+    "phone": "+84 123456789",
+    "email": "lan@globalsourcing.com",
+    "other": "Coordinates shipment schedules"
+  },
+  "buyer": {
+    "differentData": true,
+    "company": "Fashion Group Ltd.",
+    "address": "77 High Street, London, UK",
+    "contact": "Mr. John Smith",
+    "title": "Head of Compliance",
+    "phone": "+44 20 1234 5678",
+    "email": "john.smith@fashiongroup.com",
+    "other": "Final report recipient"
+  },
+  "staffCounts": {
+    "production": { "male": 120, "female": 200 },
+    "permanent": { "male": 100, "female": 150 },
+    "temporary": { "male": 15, "female": 30 },
+    "migrant": { "male": 5, "female": 10 },
+    "contractors": { "male": 2, "female": 3 },
+    "homeworkers": { "male": 0, "female": 5 },
+    "management": { "male": 8, "female": 4 },
+    "migrantNationalities": "Vietnam, Laos"
+  },
+  "special": {
+    "details": "Training to be conducted alongside consulting."
+  },
+  "ack": {
+    "requesterName": "Thashika Jayasiri",
+    "requesterTitle": "Director",
+    "requesterDate": "2025-08-12",
+    "requesterSignatureUrl": "/signatures/requester-sign.png",
+    "glaName": "GLA Auditor",
+    "glaDate": "2025-08-13",
+    "glaSignatureUrl": "/signatures/gla-sign.png"
+  }
+}

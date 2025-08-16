@@ -6,9 +6,9 @@ import Logo from "./assets/greenleaf-logo.svg";
  * Greenleaf — Online Service Booking Form (v3, QR-ready)
  * - Multi-step with validation
  * - Auto Reference ID + QR
- * - Save/Load JSON, Print-friendly
+ * - Save/Load JSON locally
+ * - Save/Load via Netlify Functions (save-booking / get-booking)
  */
-
 export default function BookingFormApp() {
   // ----- Helpers
   const genRef = () => {
@@ -22,7 +22,9 @@ export default function BookingFormApp() {
   const [touched, setTouched] = useState({});
   const mark = (name) => setTouched((t) => ({ ...t, [name]: true }));
 
+  // app state
   const [step, setStep] = useState(1);
+  const [locked, setLocked] = useState(false);
   const [refId, setRefId] = useState(genRef());
   const [showQR, setShowQR] = useState(false);
   const [ackTnC, setAckTnC] = useState(false);
@@ -31,18 +33,20 @@ export default function BookingFormApp() {
   // ----- Core form state
   const [form, setForm] = useState(() => ({
     meta: {
-      auditType: "Initial",
+      auditType: "Audit",            // "Service Type": Audit | Inspection | Training | Consulting | Other
       auditTypeOther: "",
-      auditDate: "",
+      fulfillment: "Fixed",          // "Fixed" | "Window"
+      auditDate: "",                 // Now "Fixed Date"
       windowStart: "",
       windowEnd: "",
+      services: [],                  // ["SMETA","Quality Inspection",...]
       clientsExpected: "",
       platformRef: "",
       platformSite: "",
       factoryOrRequesterId: "",
     },
     requester: { company: "", address: "", contact: "", title: "", phone: "", email: "", other: "", gps: "" },
-    supplier:  { company: "", address: "", contact: "", title: "", phone: "", email: "", other: "", gps: "" },
+    supplier:  { sameAsRequester: false, company: "", address: "", contact: "", title: "", phone: "", email: "", other: "", gps: "" },
     vendor:    { sameAsSupplier: false, company: "", address: "", contact: "", title: "", phone: "", email: "", other: "" },
     buyer:     { differentData: false, company: "", address: "", contact: "", title: "", phone: "", email: "", other: "" },
     staffCounts: {
@@ -62,20 +66,37 @@ export default function BookingFormApp() {
     },
   }));
 
+  // Copy supplier from requester when toggled
+  useEffect(() => {
+    if (!form.supplier.sameAsRequester) return;
+    const src = form.requester, dst = form.supplier;
+    const needsUpdate = ["company","address","contact","title","phone","email","other","gps"]
+      .some(k => (src[k] || "") !== (dst[k] || ""));
+    if (needsUpdate) {
+      setForm(prev => ({
+        ...prev,
+        supplier: {
+          ...prev.supplier,
+          company: src.company, address: src.address, contact: src.contact, title: src.title,
+          phone: src.phone, email: src.email, other: src.other, gps: src.gps,
+        },
+      }));
+    }
+  }, [form.supplier.sameAsRequester, form.requester]);
+
   // Copy vendor from supplier when toggled
   useEffect(() => {
-    if (form.vendor.sameAsSupplier) {
-      setForm((prev) => ({
+    if (!form.vendor.sameAsSupplier) return;
+    const src = form.supplier, dst = form.vendor;
+    const needsUpdate = ["company","address","contact","title","phone","email","other"]
+      .some(k => (src[k] || "") !== (dst[k] || ""));
+    if (needsUpdate) {
+      setForm(prev => ({
         ...prev,
         vendor: {
           ...prev.vendor,
-          company: prev.supplier.company,
-          address: prev.supplier.address,
-          contact: prev.supplier.contact,
-          title: prev.supplier.title,
-          phone: prev.supplier.phone,
-          email: prev.supplier.email,
-          other: prev.supplier.other,
+          company: src.company, address: src.address, contact: src.contact, title: src.title,
+          phone: src.phone, email: src.email, other: src.other,
         },
       }));
     }
@@ -86,7 +107,7 @@ export default function BookingFormApp() {
   const totalAll = totalMale + totalFemale;
 
   function sumMaleFemale(counts, key) {
-    const keys = ["production","permanent","temporary","migrant","contractors","homeworkers","management"];
+    const keys = ["production", "permanent", "temporary", "migrant", "contractors", "homeworkers", "management"];
     return keys.reduce((acc, k) => acc + (Number(counts[k]?.[key] || 0)), 0);
   }
 
@@ -99,7 +120,7 @@ export default function BookingFormApp() {
            ackTnC;
   }, [form, ackTnC]);
 
-  // ----- Persistence helpers (JSON)
+  // ----- Persistence helpers (local JSON)
   const fileInputRef = useRef(null);
   const saveJson = async () => {
     try {
@@ -128,19 +149,83 @@ export default function BookingFormApp() {
     reader.readAsText(file);
   };
 
-  const printPage = () => window.print();
+  // ----- Submit (save to serverless)
+  const onSubmit = async () => {
+  // Mark requireds for UI; also relies on basicValid
+  [
+    "requester.company",
+    "requester.contact",
+    "requester.email",
+    "supplier.company",
+    "supplier.contact",
+    "supplier.email",
+    "meta.dateOrWindow",
+  ].forEach(mark);
 
-  // ----- Submit (replace with API integration)
-  const onSubmit = () => {
-    // mark required fields as touched to show red
-    ["requester.company","requester.contact","requester.email","supplier.company","supplier.contact","supplier.email","meta.dateOrWindow"]
-      .forEach(mark);
-    if (!basicValid) { alert("Please complete required fields and accept Terms."); return; }
+  if (!basicValid) {
+    alert("Please complete required fields and accept Terms.");
+    return;
+  }
+
+  // Extra guard in case button is shown somehow while locked
+  if (locked) {
+    alert("This booking is locked by Greenleaf and can no longer be edited.");
+    return;
+  }
+
+  const payload = { refId, form, ts: new Date().toISOString() };
+
+  try {
+    const res = await fetch("/api/save-booking", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      if (res.status === 423) {
+        alert("This booking is locked by Greenleaf and can no longer be edited.");
+      } else {
+        const txt = await res.text().catch(() => "");
+        alert(`Could not save booking. ${txt || "Please try again."}`);
+      }
+      return;
+    }
+
+    // Success: set ?ref= for deep-link/QR and show QR
+    const url = new URL(window.location.href);
+    url.searchParams.set("ref", refId);
+    window.history.replaceState(null, "", url.toString());
+
     setShowQR(true);
     setStep(4);
-  };
+  } catch (err) {
+    alert(`Network error: ${err.message}`);
+  }
+};
 
-  // point to your live subdomain
+  // ----- Load via ?ref=REF on first render (serverless)
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (!ref) return;
+    (async () => {
+      try {
+        const res = await fetch("/.netlify/functions/get-booking?ref=" + encodeURIComponent(ref));
+        if (!res.ok) return; // not found -> ignore
+        const data = await res.json(); // { refId, form, ts }
+        if (data.refId) setRefId(data.refId);
+        if (data.form) setForm(data.form);
+        if (typeof data.locked === 'boolean') setLocked(data.locked);
+        setShowQR(true);
+        setStep(4); // jump to review with QR so user can print instantly
+      } catch {
+        // silently ignore
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // point to your live subdomain (QR text)
   const qrValue = `https://booking.greenleafassurance.com/?ref=${encodeURIComponent(refId)}`;
 
   return (
@@ -157,14 +242,14 @@ export default function BookingFormApp() {
           </div>
           <div className="flex items-center gap-2 print:hidden">
             <button onClick={() => { setRefId(genRef()); setShowQR(false); }}
-                    className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">New Ref</button>
+              className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">New Ref</button>
             <button onClick={saveJson} disabled={saving}
-                    className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">Save Draft</button>
+              className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">Save Draft</button>
             <button onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">Load Draft</button>
+              className="px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-sm">Load Draft</button>
             <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={loadJson} />
-            <button onClick={printPage}
-                    className="px-3 py-2 rounded-xl border border-brand text-brand hover:bg-brand/10 text-sm">Print</button>
+            <button onClick={() => window.print()}
+              className="px-3 py-2 rounded-xl border border-brand text-brand hover:bg-brand/10 text-sm">Print</button>
           </div>
         </div>
       </header>
@@ -178,41 +263,99 @@ export default function BookingFormApp() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         {step === 1 && (
           <SectionCard title="1 — Audit Information & Platform Data">
-            <AuditMeta form={form} setForm={setForm} touched={touched} mark={mark} />
+            <ReadOnlyCurtain locked={locked}>
+              <AuditMeta
+                form={form}
+                setForm={setForm}
+                touched={touched}
+                mark={mark}
+              />
+            </ReadOnlyCurtain>
           </SectionCard>
         )}
+
         {step === 2 && (
           <SectionCard title="2 — Parties & Contacts">
-            <Parties form={form} setForm={setForm} touched={touched} mark={mark} />
+            <ReadOnlyCurtain locked={locked}>
+              <Parties
+                form={form}
+                setForm={setForm}
+                touched={touched}
+                mark={mark}
+              />
+            </ReadOnlyCurtain>
           </SectionCard>
         )}
+
         {step === 3 && (
           <SectionCard title="3 — Manday Calculation & Special Conditions">
-            <Manday form={form} setForm={setForm} totals={{ totalMale, totalFemale, totalAll }} />
+            <ReadOnlyCurtain locked={locked}>
+              <Manday
+                form={form}
+                setForm={setForm}
+                totals={{ totalMale, totalFemale, totalAll }}
+              />
+            </ReadOnlyCurtain>
           </SectionCard>
         )}
+
         {step === 4 && (
           <SectionCard title="4 — Review, Acknowledgement & QR">
-            <Review form={form} setForm={setForm} refId={refId} ackTnC={ackTnC} setAckTnC={setAckTnC} showQR={showQR} qrValue={qrValue} />
+            <Review
+              form={form}
+              setForm={setForm}
+              refId={refId}
+              ackTnC={ackTnC}
+              setAckTnC={setAckTnC}
+              showQR={showQR}
+              qrValue={qrValue}
+            />
           </SectionCard>
         )}
 
         {/* Footer Controls */}
         <div className="flex items-center justify-between gap-3 sticky bottom-0 py-4 bg-gradient-to-t from-white to-white/80 backdrop-blur border-t border-neutral-200 print:hidden">
           <div className="text-xs text-neutral-500">
-            Tip: Use <span className="font-semibold">Save Draft</span> to download a JSON you can load later.
-          </div>
-          <div className="flex items-center gap-2">
-            <button disabled={step<=1}
-                    onClick={() => setStep((s) => Math.max(1, s-1))}
-                    className="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200">Back</button>
-            {step < 4 && (
-              <button onClick={() => setStep((s) => Math.min(4, s+1))}
-                      className="px-4 py-2 rounded-xl bg-brand text-white">Next</button>
+            {locked ? (
+              "This booking is locked by Greenleaf and cannot be edited."
+            ) : (
+              <>
+                Tip: Use <span className="font-semibold">Save Draft</span> to download a JSON you can load later.
+              </>
             )}
-            {step === 4 && (
-              <button onClick={onSubmit}
-                      className="px-4 py-2 rounded-xl bg-brand-dark text-white">Generate QR & Submit</button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              disabled={step <= 1}
+              onClick={() => setStep((s) => Math.max(1, s - 1))}
+              className="px-4 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200"
+            >
+              Back
+            </button>
+
+            {step < 4 && (
+              <button
+                onClick={() => setStep((s) => Math.min(4, s + 1))}
+                className="px-4 py-2 rounded-xl bg-brand text-white"
+              >
+                Next
+              </button>
+            )}
+
+            {step === 4 && !locked && (
+              <button
+                onClick={onSubmit}
+                className="px-4 py-2 rounded-xl bg-brand-dark text-white"
+              >
+                Generate QR & Submit
+              </button>
+            )}
+
+            {step === 4 && locked && (
+              <span className="px-3 py-2 rounded-xl bg-neutral-200 text-neutral-600">
+                Locked
+              </span>
             )}
           </div>
         </div>
@@ -221,12 +364,14 @@ export default function BookingFormApp() {
         <footer className="max-w-6xl mx-auto px-4 mt-4">
           <div className="rounded-2xl border border-neutral-200 bg-white p-4 text-xs text-neutral-500 flex items-center justify-between">
             <span>© {new Date().getFullYear()} Greenleaf Assurance. All rights reserved.</span>
-            <a className="text-brand hover:underline" href="mailto:info@greenleafassurance.com">info@greenleafassurance.com</a>
+            <a className="text-brand hover:underline" href="mailto:info@greenleafassurance.com">
+              info@greenleafassurance.com
+            </a>
           </div>
         </footer>
       </main>
 
-      {/* Print QR badge at top of print */}
+      {/* Print QR badge */}
       {showQR && (
         <div className="hidden print:block absolute top-4 right-4">
           <div className="bg-white border border-neutral-200 rounded-xl p-2 text-center">
@@ -235,9 +380,13 @@ export default function BookingFormApp() {
           </div>
         </div>
       )}
-    </div>
+      </div>
   );
 }
+
+
+/* ----------------------- UI Components ----------------------- */
+
 
 function SectionCard({ title, children }) {
   return (
@@ -263,13 +412,12 @@ function Stepper({ step, setStep }) {
       {steps.map((s, i) => (
         <li key={s.id} className="group cursor-pointer select-none" onClick={() => setStep(s.id)}>
           <div className={`flex items-center gap-2 p-2 rounded-xl border text-sm ${
-              step === s.id
-                ? "bg-brand/10 border-brand/50 text-brand-dark"
-                : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
-            }`}>
+            step === s.id ? "bg-brand/10 border-brand/50 text-brand-dark"
+                          : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+          }`}>
             <span className={`w-6 h-6 grid place-items-center rounded-lg font-semibold ${
-                step === s.id ? "bg-brand text-white" : "bg-neutral-100"
-            }`}>{i+1}</span>
+              step === s.id ? "bg-brand text-white" : "bg-neutral-100"
+            }`}>{i + 1}</span>
             <span className="truncate">{s.label}</span>
           </div>
         </li>
@@ -278,7 +426,7 @@ function Stepper({ step, setStep }) {
   );
 }
 
-function Field({ label, required=false, children, note }) {
+function Field({ label, required = false, children, note }) {
   return (
     <label className="block">
       <div className="flex items-baseline gap-2 mb-1">
@@ -302,84 +450,181 @@ function Textarea({ className = "", ...props }) {
 function Checkbox({ className = "", ...props }) {
   return (
     <input type="checkbox" {...props}
-           className={`w-4 h-4 rounded border-neutral-300 text-brand focus:ring-brand/40 ${className}`} />
+      className={`w-4 h-4 rounded border-neutral-300 text-brand focus:ring-brand/40 ${className}`} />
   );
 }
-function NumberInput(props){ return <Input type="number" min={0} step={1} {...props} /> }
+function NumberInput(props) { return <Input type="number" min={0} step={1} {...props} /> }
+
+/* ----------------------- Sections ----------------------- */
 
 function AuditMeta({ form, setForm, touched, mark }) {
   const m = form.meta;
   const set = (patch) => setForm((prev) => ({ ...prev, meta: { ...prev.meta, ...patch } }));
 
-  // validity: either auditDate OR both windowStart + windowEnd
-  const dateMissing = !(m.auditDate || (m.windowStart && m.windowEnd));
+  // Validation for date/window
+  const dateMissing =
+    m.fulfillment === "Window" ? !(m.windowStart && m.windowEnd) : !(m.auditDate);
+
+  // Services multi-select helpers
+  const SERVICE_CHOICES = ["SMETA","Quality Inspection","Social Audit","Training","Consulting","Other"];
+  const toggleService = (name) => {
+    const next = new Set(m.services || []);
+    next.has(name) ? next.delete(name) : next.add(name);
+    set({ services: Array.from(next) });
+  };
 
   return (
     <div className="space-y-6">
-      {/* Audit Type */}
+      {/* Service Type & Fulfillment */}
       <div className="grid md:grid-cols-3 gap-4">
-        <Field label="Audit Type" required>
+        <Field label="Service Type" required>
           <div className="flex flex-wrap items-center gap-3">
-            {["Initial","Annual","Re-Audit","Other"].map((t) => (
+            {["Audit","Inspection","Training","Consulting","Other"].map((t) => (
               <label key={t} className="flex items-center gap-2">
-                <input type="radio" name="auditType" value={t} checked={m.auditType===t} onChange={(e)=> set({ auditType: e.target.value })} />
+                <input
+                  type="radio"
+                  name="serviceType"
+                  value={t}
+                  checked={m.auditType === t}
+                  onChange={(e) => set({ auditType: e.target.value })}
+                />
                 <span className="text-sm">{t}</span>
               </label>
             ))}
           </div>
         </Field>
+
         {m.auditType === "Other" && (
           <Field label="If Other, specify">
-            <Input value={m.auditTypeOther} onChange={(e)=> set({ auditTypeOther: e.target.value })} placeholder="e.g., Special Follow-up" />
+            <Input
+              value={m.auditTypeOther || ""}
+              onChange={(e) => set({ auditTypeOther: e.target.value })}
+              placeholder="e.g., Special follow-up"
+            />
           </Field>
         )}
+
+        <Field label="Fulfillment" required>
+          <div className="flex items-center gap-4">
+            {["Fixed","Window"].map((f) => (
+              <label key={f} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="fulfillment"
+                  value={f}
+                  checked={(m.fulfillment || "Fixed") === f}
+                  onChange={(e) => set({ fulfillment: e.target.value })}
+                  onBlur={() => mark("meta.dateOrWindow")}
+                />
+                <span className="text-sm">{f}</span>
+              </label>
+            ))}
+          </div>
+        </Field>
       </div>
 
       {/* Dates */}
       <div className="grid md:grid-cols-3 gap-4">
-        <Field label="Audit Date">
+        <Field label={m.fulfillment === "Window" ? "Fixed Date (disabled)" : "Fixed Date"}>
           <Input
             type="date"
-            value={m.auditDate}
-            onChange={(e)=> set({ auditDate: e.target.value })}
-            onBlur={()=> mark("meta.dateOrWindow")}
-            className={(touched["meta.dateOrWindow"] && dateMissing) ? "input-invalid" : ""}
+            disabled={m.fulfillment === "Window"}
+            value={m.auditDate || ""}
+            onChange={(e) => set({ auditDate: e.target.value })}
+            onBlur={() => mark("meta.dateOrWindow")}
+            className={
+              touched["meta.dateOrWindow"] && dateMissing && m.fulfillment !== "Window" ? "input-invalid" : ""
+            }
           />
         </Field>
-        <Field label="Window Start" note="(optional if Audit Date given)">
+        <Field label="Window Start" note={m.fulfillment === "Fixed" ? "(optional)" : "(required)"}>
           <Input
             type="date"
-            value={m.windowStart}
-            onChange={(e)=> set({ windowStart: e.target.value })}
-            onBlur={()=> mark("meta.dateOrWindow")}
-            className={(touched["meta.dateOrWindow"] && dateMissing) ? "input-invalid" : ""}
+            value={m.windowStart || ""}
+            onChange={(e) => set({ windowStart: e.target.value })}
+            onBlur={() => mark("meta.dateOrWindow")}
+            className={
+              touched["meta.dateOrWindow"] && dateMissing && m.fulfillment === "Window" ? "input-invalid" : ""
+            }
           />
         </Field>
-        <Field label="Window End">
+        <Field label="Window End" note={m.fulfillment === "Fixed" ? "(optional)" : "(required)"}>
           <Input
             type="date"
-            value={m.windowEnd}
-            onChange={(e)=> set({ windowEnd: e.target.value })}
-            onBlur={()=> mark("meta.dateOrWindow")}
-            className={(touched["meta.dateOrWindow"] && dateMissing) ? "input-invalid" : ""}
+            value={m.windowEnd || ""}
+            onChange={(e) => set({ windowEnd: e.target.value })}
+            onBlur={() => mark("meta.dateOrWindow")}
+            className={
+              touched["meta.dateOrWindow"] && dateMissing && m.fulfillment === "Window" ? "input-invalid" : ""
+            }
           />
         </Field>
       </div>
 
-      {/* Platform Data */}
+      {/* Services offered */}
+      <div className="grid md:grid-cols-3 gap-4">
+        <Field label="Requested Services">
+          <div className="flex flex-wrap gap-2">
+            {SERVICE_CHOICES.map((s) => {
+              const active = (m.services || []).includes(s);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => toggleService(s)}
+                  className={`px-3 py-1 rounded-full border text-sm ${
+                    active ? "bg-brand text-white border-brand"
+                           : "bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50"
+                  }`}
+                >
+                  {s}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+        {(m.services || []).includes("Other") && (
+          <Field label="If Other, describe">
+            <Input
+              value={m.auditTypeOther || ""}
+              onChange={(e) => set({ auditTypeOther: e.target.value })}
+              placeholder="e.g., Custom assessment"
+            />
+          </Field>
+        )}
+      </div>
+
+      {/* Platform / references */}
       <div className="grid md:grid-cols-2 gap-4">
         <Field label="Clients expected to receive this report">
-          <Textarea rows={3} value={m.clientsExpected} onChange={(e)=> set({ clientsExpected: e.target.value })} placeholder="List buyer/brand names" />
+          <Textarea
+            rows={3}
+            value={m.clientsExpected || ""}
+            onChange={(e) => set({ clientsExpected: e.target.value })}
+            placeholder="List buyer/brand names"
+          />
         </Field>
         <div className="grid grid-cols-1 gap-4">
-          <Field label="Audit Platform Reference #">
-            <Input value={m.platformRef} onChange={(e)=> set({ platformRef: e.target.value })} placeholder="e.g., Sedex ZC-xxxx" />
+          <Field label="Platform / Program Reference #">
+            <Input
+              value={m.platformRef || ""}
+              onChange={(e) => set({ platformRef: e.target.value })}
+              placeholder="e.g., Sedex ZC-xxxx"
+            />
           </Field>
-          <Field label="Audit Platform Site #">
-            <Input value={m.platformSite} onChange={(e)=> set({ platformSite: e.target.value })} placeholder="e.g., ZS-xxxx" />
+          <Field label="Platform Site # / Facility ID">
+            <Input
+              value={m.platformSite || ""}
+              onChange={(e) => set({ platformSite: e.target.value })}
+              placeholder="e.g., ZS-xxxx"
+            />
           </Field>
-          <Field label="Factory / Requester ID">
-            <Input value={m.factoryOrRequesterId} onChange={(e)=> set({ factoryOrRequesterId: e.target.value })} placeholder="Internal code if any" />
+          <Field label="Factory / Requester Internal ID">
+            <Input
+              value={m.factoryOrRequesterId || ""}
+              onChange={(e) => set({ factoryOrRequesterId: e.target.value })}
+              placeholder="Internal code if any"
+            />
           </Field>
         </div>
       </div>
@@ -389,21 +634,35 @@ function AuditMeta({ form, setForm, touched, mark }) {
         <ContactBlock
           title="Requester (Lead Account)"
           data={form.requester}
-          onChange={(patch) => setForm((prev)=> ({ ...prev, requester: { ...prev.requester, ...patch } }))}
+          onChange={(patch) => setForm((prev) => ({ ...prev, requester: { ...prev.requester, ...patch } }))}
           required
           prefix="requester"
           touched={touched}
           mark={mark}
         />
-        <ContactBlock
-          title="Supplier / Factory"
-          data={form.supplier}
-          onChange={(patch) => setForm((prev)=> ({ ...prev, supplier: { ...prev.supplier, ...patch } }))}
-          required
-          prefix="supplier"
-          touched={touched}
-          mark={mark}
-        />
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-neutral-700">Supplier / Factory</div>
+            <label className="text-sm flex items-center gap-2">
+              <Checkbox
+                checked={!!form.supplier.sameAsRequester}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, supplier: { ...p.supplier, sameAsRequester: e.target.checked } }))
+                }
+              />
+              <span>Same as Requester</span>
+            </label>
+          </div>
+          <ContactBlock
+            data={form.supplier}
+            onChange={(patch) => setForm((prev) => ({ ...prev, supplier: { ...prev.supplier, ...patch } }))}
+            required
+            prefix="supplier"
+            touched={touched}
+            mark={mark}
+          />
+        </div>
       </div>
     </div>
   );
@@ -411,7 +670,6 @@ function AuditMeta({ form, setForm, touched, mark }) {
 
 function Parties({ form, setForm }) {
   const v = form.vendor; const b = form.buyer;
-
   return (
     <div className="space-y-8">
       <div className="grid md:grid-cols-2 gap-6">
@@ -419,13 +677,13 @@ function Parties({ form, setForm }) {
           <div className="flex items-center justify-between">
             <h3 className="font-semibold">Vendor / Trading Company</h3>
             <label className="text-sm flex items-center gap-2">
-              <Checkbox checked={v.sameAsSupplier} onChange={(e)=> setForm((p)=> ({...p, vendor: { ...p.vendor, sameAsSupplier: e.target.checked }}))} />
+              <Checkbox checked={v.sameAsSupplier} onChange={(e) => setForm((p) => ({ ...p, vendor: { ...p.vendor, sameAsSupplier: e.target.checked } }))} />
               <span>Same as Supplier</span>
             </label>
           </div>
           <ContactBlock
             data={v}
-            onChange={(patch) => setForm((prev)=> ({ ...prev, vendor: { ...prev.vendor, ...patch } }))}
+            onChange={(patch) => setForm((prev) => ({ ...prev, vendor: { ...prev.vendor, ...patch } }))}
           />
         </div>
 
@@ -433,14 +691,14 @@ function Parties({ form, setForm }) {
           <div className="flex items-center justify-between">
             <h3 className="font-semibold">Buyer / Other Party (Billing)</h3>
             <label className="text-sm flex items-center gap-2">
-              <Checkbox checked={b.differentData} onChange={(e)=> setForm((p)=> ({...p, buyer: { ...p.buyer, differentData: e.target.checked }}))} />
+              <Checkbox checked={b.differentData} onChange={(e) => setForm((p) => ({ ...p, buyer: { ...p.buyer, differentData: e.target.checked } }))} />
               <span>Different Billing Data</span>
             </label>
           </div>
           {b.differentData ? (
             <ContactBlock
               data={b}
-              onChange={(patch) => setForm((prev)=> ({ ...prev, buyer: { ...prev.buyer, ...patch } }))}
+              onChange={(patch) => setForm((prev) => ({ ...prev, buyer: { ...prev.buyer, ...patch } }))}
             />
           ) : (
             <div className="text-sm text-neutral-500 border border-dashed rounded-xl p-4">
@@ -453,7 +711,7 @@ function Parties({ form, setForm }) {
   );
 }
 
-function ContactBlock({ title, data, onChange, required=false, prefix="", touched={}, mark=()=>{} }) {
+function ContactBlock({ title, data, onChange, required = false, prefix = "", touched = {}, mark = () => {} }) {
   const set = (patch) => onChange(patch);
   const req = (k) => (touched[`${prefix}.${k}`] && !data[k]) ? "input-invalid" : "";
 
@@ -461,38 +719,38 @@ function ContactBlock({ title, data, onChange, required=false, prefix="", touche
     <div className="grid grid-cols-1 gap-3">
       {title && <div className="text-sm font-medium text-neutral-700">{title}</div>}
       <Field label="Company Name" required={required}>
-        <Input value={data.company || ""} onChange={(e)=> set({ company: e.target.value })} onBlur={()=> mark(`${prefix}.company`)} className={req("company")} />
+        <Input value={data.company || ""} onChange={(e) => set({ company: e.target.value })} onBlur={() => mark(`${prefix}.company`)} className={req("company")} />
       </Field>
-      <Field label="Address"><Textarea rows={2} value={data.address || ""} onChange={(e)=> set({ address: e.target.value })} /></Field>
+      <Field label="Address"><Textarea rows={2} value={data.address || ""} onChange={(e) => set({ address: e.target.value })} /></Field>
       <div className="grid md:grid-cols-2 gap-3">
         <Field label="Contact Person" required={required}>
-          <Input value={data.contact || ""} onChange={(e)=> set({ contact: e.target.value })} onBlur={()=> mark(`${prefix}.contact`)} className={req("contact")} />
+          <Input value={data.contact || ""} onChange={(e) => set({ contact: e.target.value })} onBlur={() => mark(`${prefix}.contact`)} className={req("contact")} />
         </Field>
-        <Field label="Job Title"><Input value={data.title || ""} onChange={(e)=> set({ title: e.target.value })} /></Field>
+        <Field label="Job Title"><Input value={data.title || ""} onChange={(e) => set({ title: e.target.value })} /></Field>
       </div>
       <div className="grid md:grid-cols-3 gap-3">
-        <Field label="Phone"><Input value={data.phone || ""} onChange={(e)=> set({ phone: e.target.value })} /></Field>
+        <Field label="Phone"><Input value={data.phone || ""} onChange={(e) => set({ phone: e.target.value })} /></Field>
         <Field label="Email" required={required}>
-          <Input type="email" value={data.email || ""} onChange={(e)=> set({ email: e.target.value })} onBlur={()=> mark(`${prefix}.email`)} className={req("email")} />
+          <Input type="email" value={data.email || ""} onChange={(e) => set({ email: e.target.value })} onBlur={() => mark(`${prefix}.email`)} className={req("email")} />
         </Field>
         {"gps" in data && (
-          <Field label="GPS"><Input placeholder="Latitude, Longitude" value={data.gps || ""} onChange={(e)=> set({ gps: e.target.value })} /></Field>
+          <Field label="GPS"><Input placeholder="Latitude, Longitude" value={data.gps || ""} onChange={(e) => set({ gps: e.target.value })} /></Field>
         )}
       </div>
-      <Field label="Other"><Input value={data.other || ""} onChange={(e)=> set({ other: e.target.value })} /></Field>
+      <Field label="Other"><Input value={data.other || ""} onChange={(e) => set({ other: e.target.value })} /></Field>
     </div>
   );
 }
 
 function Manday({ form, setForm, totals }) {
   const c = form.staffCounts;
-  const setCounts = (patch) => setForm((prev)=> ({ ...prev, staffCounts: { ...prev.staffCounts, ...patch } }));
+  const setCounts = (patch) => setForm((prev) => ({ ...prev, staffCounts: { ...prev.staffCounts, ...patch } }));
 
   const Row = ({ name, keyName }) => (
     <div className="grid grid-cols-3 gap-3 items-center">
       <div className="text-sm">{name}</div>
-      <NumberInput value={c[keyName].male} onChange={(e)=> setCounts({ [keyName]: { ...c[keyName], male: Number(e.target.value||0) } })} />
-      <NumberInput value={c[keyName].female} onChange={(e)=> setCounts({ [keyName]: { ...c[keyName], female: Number(e.target.value||0) } })} />
+      <NumberInput value={c[keyName].male} onChange={(e) => setCounts({ [keyName]: { ...c[keyName], male: Number(e.target.value || 0) } })} />
+      <NumberInput value={c[keyName].female} onChange={(e) => setCounts({ [keyName]: { ...c[keyName], female: Number(e.target.value || 0) } })} />
     </div>
   );
 
@@ -518,14 +776,14 @@ function Manday({ form, setForm, totals }) {
           </div>
           <div className="space-y-3">
             <Field label="Nationality(ies) of migrants (if any)">
-              <Textarea rows={6} value={c.migrantNationalities} onChange={(e)=> setCounts({ migrantNationalities: e.target.value })} placeholder="e.g., VN, KH, BD" />
+              <Textarea rows={6} value={c.migrantNationalities} onChange={(e) => setCounts({ migrantNationalities: e.target.value })} placeholder="e.g., VN, KH, BD" />
             </Field>
             <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-4">
               <div className="text-sm font-medium mb-2">Live Totals</div>
               <div className="grid grid-cols-3 gap-2 text-sm">
-                <div className="p-2 rounded-lg bg-white border">Male<br/><span className="font-mono text-base">{totals.totalMale}</span></div>
-                <div className="p-2 rounded-lg bg-white border">Female<br/><span className="font-mono text-base">{totals.totalFemale}</span></div>
-                <div className="p-2 rounded-lg bg-white border">Total<br/><span className="font-mono text-base">{totals.totalAll}</span></div>
+                <div className="p-2 rounded-lg bg-white border">Male<br /><span className="font-mono text-base">{totals.totalMale}</span></div>
+                <div className="p-2 rounded-lg bg-white border">Female<br /><span className="font-mono text-base">{totals.totalFemale}</span></div>
+                <div className="p-2 rounded-lg bg-white border">Total<br /><span className="font-mono text-base">{totals.totalAll}</span></div>
               </div>
             </div>
           </div>
@@ -534,7 +792,7 @@ function Manday({ form, setForm, totals }) {
 
       <div className="grid grid-cols-1 gap-4">
         <Field label="3.2 — Other details or Special Conditions">
-          <Textarea rows={4} value={form.special.details} onChange={(e)=> setForm((p)=> ({...p, special: { ...p.special, details: e.target.value }}))} placeholder="Travel constraints, language requirements, site access, etc." />
+          <Textarea rows={4} value={form.special.details} onChange={(e) => setForm((p) => ({ ...p, special: { ...p.special, details: e.target.value } }))} placeholder="Travel constraints, language requirements, site access, etc." />
         </Field>
       </div>
     </div>
@@ -546,7 +804,7 @@ function Review({ form, setForm, refId, ackTnC, setAckTnC, showQR, qrValue }) {
     const updates = side === "requester"
       ? { requesterName: patch.name, requesterTitle: patch.title, requesterDate: patch.date, requesterSignatureUrl: patch.signatureUrl }
       : { glaName: patch.name, glaDate: patch.date, glaSignatureUrl: patch.signatureUrl };
-    setForm(prev => ({ ...prev, ack: { ...prev.ack, ...updates }}));
+    setForm(prev => ({ ...prev, ack: { ...prev.ack, ...updates } }));
   };
 
   return (
@@ -560,15 +818,15 @@ function Review({ form, setForm, refId, ackTnC, setAckTnC, showQR, qrValue }) {
         </div>
         <div className="p-4 text-sm">
           <label className="inline-flex items-center gap-2">
-            <input id="ack" type="checkbox" className="w-4 h-4" checked={ackTnC} onChange={(e)=> setAckTnC(e.target.checked)} />
+            <input id="ack" type="checkbox" className="w-4 h-4" checked={ackTnC} onChange={(e) => setAckTnC(e.target.checked)} />
             <span>I have read and accept the Terms & Conditions.</span>
           </label>
         </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        <AckCard title="3.4 — Service Requester Acknowledgement" data={form.ack} side="requester" onChange={(patch)=> patchAck(patch, "requester")} />
-        <AckCard title="Greenleaf Assurance Team" data={form.ack} side="gla" onChange={(patch)=> patchAck(patch, "gla")} />
+        <AckCard title="3.4 — Service Requester Acknowledgement" data={form.ack} side="requester" onChange={(patch) => patchAck(patch, "requester")} />
+        <AckCard title="Greenleaf Assurance Team" data={form.ack} side="gla" onChange={(patch) => patchAck(patch, "gla")} />
       </div>
 
       <div className="rounded-2xl border border-neutral-200 p-4 flex flex-col md:flex-row items-center justify-between gap-4">
@@ -594,23 +852,23 @@ function Review({ form, setForm, refId, ackTnC, setAckTnC, showQR, qrValue }) {
   );
 }
 
-function AckCard({ title, data, side, onChange }){
+function AckCard({ title, data, side, onChange }) {
   const [name, setName] = useState("");
   const [titleRole, setTitleRole] = useState("");
   const [date, setDate] = useState("");
   const [signatureUrl, setSignatureUrl] = useState("");
 
   useEffect(() => {
-    if (side === "requester"){
-      setName(data.requesterName||"");
-      setTitleRole(data.requesterTitle||"");
-      setDate(data.requesterDate||"");
-      setSignatureUrl(data.requesterSignatureUrl||"");
+    if (side === "requester") {
+      setName(data.requesterName || "");
+      setTitleRole(data.requesterTitle || "");
+      setDate(data.requesterDate || "");
+      setSignatureUrl(data.requesterSignatureUrl || "");
     } else {
-      setName(data.glaName||"");
+      setName(data.glaName || "");
       setTitleRole("");
-      setDate(data.glaDate||"");
-      setSignatureUrl(data.glaSignatureUrl||"");
+      setDate(data.glaDate || "");
+      setSignatureUrl(data.glaSignatureUrl || "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -632,11 +890,11 @@ function AckCard({ title, data, side, onChange }){
     <div className="rounded-2xl border border-neutral-200 overflow-hidden">
       <div className="px-4 py-3 border-b border-neutral-200 font-medium">{title}</div>
       <div className="p-4 grid md:grid-cols-2 gap-4 items-end">
-        <Field label="Name"><Input value={name} onChange={(e)=> setName(e.target.value)} /></Field>
+        <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
         {side === "requester" && (
-          <Field label="Title / Role"><Input value={titleRole} onChange={(e)=> setTitleRole(e.target.value)} /></Field>
+          <Field label="Title / Role"><Input value={titleRole} onChange={(e) => setTitleRole(e.target.value)} /></Field>
         )}
-        <Field label="Date"><Input type="date" value={date} onChange={(e)=> setDate(e.target.value)} /></Field>
+        <Field label="Date"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         <div className="space-y-2">
           <Field label="Signature (upload image)">
             <input type="file" accept="image/*" onChange={onSignatureUpload} />
@@ -652,10 +910,20 @@ function AckCard({ title, data, side, onChange }){
   );
 }
 
-function SmallPrint(){
+function SmallPrint() {
   return (
     <div className="text-[11px] text-neutral-500 leading-5">
       Greenleaf Assurance is a Business Support Services Company that is committed to improving the operations of manufacturers, inspection/auditing companies, vendors, and end users. We aim to assist in the advancement of your business to the next level. We kindly request that all customers complete our booking form in order to obtain a valid quotation/estimate. To guarantee precision, please provide detailed and accurate information.
+    </div>
+  );
+}
+
+function ReadOnlyCurtain({ locked, children }) {
+  if (!locked) return children;
+  return (
+    <div className="relative">
+      <div className="absolute inset-0 z-10 rounded-2xl bg-white/50 cursor-not-allowed" />
+      {children}
     </div>
   );
 }
