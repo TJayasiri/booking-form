@@ -1,3 +1,4 @@
+// netlify/functions/booking-index.js
 import { getStore } from "@netlify/blobs";
 
 function makeStore() {
@@ -9,53 +10,74 @@ function makeStore() {
   });
 }
 
-const ADMIN_HEADER = "x-admin-token";
+function json(status, body, extra = {}) {
+  return {
+    statusCode: status,
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...extra },
+    body: JSON.stringify(body),
+  };
+}
+
+function csv(status, text) {
+  return {
+    statusCode: status,
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Content-Disposition": "inline; filename=index.csv",
+    },
+    body: text,
+  };
+}
+
+function assertAdmin(event) {
+  const h = event.headers || {};
+  const k = h["x-admin-key"] || h["X-Admin-Key"];
+  if (!k || k !== process.env.ADMIN_KEY) throw new Error("Unauthorized");
+}
 
 export async function handler(event) {
-  if (event.httpMethod !== "GET") {
-    return { statusCode: 405, body: "Method not allowed" };
-  }
-  const supplied = event.headers[ADMIN_HEADER] || event.headers[ADMIN_HEADER.toLowerCase()];
-  if (!supplied || supplied !== process.env.ADMIN_TOKEN) {
-    return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
-  }
-
   try {
-    const store = makeStore();
-    // Try fast path
-    let index = await store.get("index.json", { type: "json" });
-    if (!Array.isArray(index)) index = [];
+    assertAdmin(event);
 
-    // If index empty, build from records
-    if (index.length === 0) {
-      const rows = [];
-      const iter = store.list({ prefix: "records/" });
-      for await (const entry of iter) {
-        if (!entry.key.endsWith(".json")) continue;
-        const rec = await store.get(entry.key, { type: "json" });
-        if (!rec) continue;
-        rows.push({
-          id: rec.refId || "",
-          ts: rec.ts || "",
-          name: rec?.form?.requester?.company || "",
-          email: rec?.form?.requester?.email || "",
-          locked: !!rec.locked,
-          version: rec.version || 1,
-          views: rec?.metrics?.views || 0,
-        });
-      }
-      index = rows;
+    const store = makeStore();
+
+    // Try fast index
+    let rows = await store.get("index.json", { type: "json" });
+    if (!Array.isArray(rows)) rows = [];
+
+    // Allow CSV or JSON
+    const format = (event.queryStringParameters?.format || "json").toLowerCase();
+
+    // Optional filter/limit
+    const q = (event.queryStringParameters?.q || "").toLowerCase().trim();
+    const limit = Math.min(1000, Math.max(1, Number(event.queryStringParameters?.limit || 200)));
+
+    let data = rows;
+    if (q) {
+      data = rows.filter((r) =>
+        [r.id, r.name, r.email].filter(Boolean).some((v) => v.toLowerCase().includes(q))
+      );
+    }
+    data = data.slice(0, limit);
+
+    if (format === "csv") {
+      const header = ["id","ts","name","email","phone","date","time","notes","locked","version","views","last_event"];
+      const csvText = [
+        header.join(","),
+        ...data.map((r) => [
+          r.id, r.ts, (r.name||""), (r.email||""), (r.phone||""),
+          (r.date||""), (r.time||""), (r.notes||""),
+          String(r.locked ?? false).toUpperCase(),
+          r.version ?? "", r.views ?? "", r.last_event ?? ""
+        ].map(v => String(v).replace(/"/g,'""')).map(v => /[,\"\n]/.test(v) ? `"${v}"` : v).join(","))
+      ].join("\n");
+      return csv(200, csvText);
     }
 
-    // sort newest first
-    index.sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
-
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-      body: JSON.stringify(index),
-    };
+    return json(200, data);
   } catch (e) {
-    return { statusCode: 500, body: JSON.stringify({ error: e.message || "index failed" }) };
+    if (/Unauthorized/.test(e.message)) return json(401, { error: "Unauthorized" });
+    return json(500, { error: e?.message || "Index error" });
   }
 }
