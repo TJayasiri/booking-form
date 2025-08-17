@@ -8,24 +8,25 @@
     body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 16px; }
     .row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
     table { border-collapse: collapse; width: 100%; margin-top: 12px; }
-    th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; }
+    th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; vertical-align: top; }
     th { background: #f7f7f7; text-align: left; }
     .ok { color: #166534; }
     .err { color: #991b1b; }
     input[type=text] { padding:6px 8px; font-size:14px; }
     button { padding:6px 10px; font-size:14px; cursor:pointer; }
     .muted { color:#666; font-size: 12px; }
+    .nowrap { white-space: nowrap; }
   </style>
 </head>
 <body>
   <h1>Greenleaf — Admin</h1>
 
   <div class="row">
-    <label>Admin Token:
-      <input id="token" type="text" placeholder="paste ADMIN_TOKEN here" size="40">
+    <label>Admin Key:
+      <input id="key" type="text" placeholder="paste ADMIN_KEY here" size="44">
     </label>
-    <button id="saveToken">Use token</button>
-    <span class="muted">Stored in session only.</span>
+    <button id="saveKey">Use key</button>
+    <span class="muted">Stored in your browser (localStorage).</span>
   </div>
 
   <div class="row" style="margin-top:10px;">
@@ -39,84 +40,123 @@
   <table id="tbl">
     <thead>
       <tr>
-        <th>refId</th><th>ts</th><th>name</th><th>email</th><th>locked</th><th>version</th><th>views</th>
+        <th>refId</th>
+        <th class="nowrap">ts</th>
+        <th>name</th>
+        <th>email</th>
+        <th class="nowrap">locked</th>
+        <th class="nowrap">version</th>
+        <th class="nowrap">views</th>
+        <th>actions</th>
       </tr>
     </thead>
     <tbody></tbody>
   </table>
 
   <script>
+    // --- helpers
     const $ = (s) => document.querySelector(s);
-    const tokenInput = $("#token");
     const msg = $("#msg");
+    const keyInput = $("#key");
     const tbody = $("#tbl tbody");
 
-    function setMsg(t, ok=true){ msg.textContent = t; msg.className = ok ? "ok" : "err"; }
-    function getToken(){ return sessionStorage.getItem("ADMIN_TOKEN") || ""; }
-    function setToken(tok){ sessionStorage.setItem("ADMIN_TOKEN", tok||""); }
+    function setMsg(text, ok=true) {
+      msg.textContent = text;
+      msg.className = ok ? "ok" : "err";
+    }
+    function getKey() {
+      return localStorage.getItem("ADMIN_KEY") || "";
+    }
+    function setKey(k) {
+      localStorage.setItem("ADMIN_KEY", k || "");
+    }
+    function tdText(text) {
+      const td = document.createElement("td");
+      td.textContent = text ?? "";
+      return td;
+    }
 
-    // Load saved token into input
-    tokenInput.value = getToken();
+    // preload saved key
+    keyInput.value = getKey();
 
-    $("#saveToken").onclick = () => {
-      setToken(tokenInput.value.trim());
-      setMsg("Token saved for this session.");
+    // wire buttons
+    $("#saveKey").onclick = () => {
+      setKey(keyInput.value.trim());
+      setMsg("Key saved in this browser.");
       loadIndex();
     };
-
     $("#btnReload").onclick = loadIndex;
     $("#btnLock").onclick = () => doAction("lock");
     $("#btnUnlock").onclick = () => doAction("unlock");
 
-    async function loadIndex(){
+    async function loadIndex() {
       tbody.innerHTML = "";
-      const tok = getToken();
-      if(!tok){ setMsg("Enter admin token, then click 'Use token'.", false); return; }
+      const key = getKey();
+      if (!key) { setMsg("Enter admin key, then click 'Use key'.", false); return; }
       try {
-        const res = await fetch("/api/booking-index", { headers: { "x-admin-token": tok } });
-        if(!res.ok){ setMsg("Unauthorized or error loading index.", false); return; }
+        const res = await fetch("/api/booking-index?limit=500", {
+          headers: { "X-Admin-Key": key }
+        });
+        if (!res.ok) { setMsg("Unauthorized or error loading index.", false); return; }
         const rows = await res.json();
-        for(const r of rows){
+
+        for (const r of rows) {
           const tr = document.createElement("tr");
-          tr.innerHTML = `
-            <td>${r.id||""}</td>
-            <td>${r.ts||""}</td>
-            <td>${(r.name||"").replaceAll("<","&lt;")}</td>
-            <td>${(r.email||"").replaceAll("<","&lt;")}</td>
-            <td>${r.locked ? "TRUE" : "FALSE"}</td>
-            <td>${r.version||1}</td>
-            <td>${r.views||0}</td>
-          `;
+          tr.appendChild(tdText(r.id));
+          tr.appendChild(tdText(r.ts));
+          tr.appendChild(tdText(r.name));
+          tr.appendChild(tdText(r.email));
+          tr.appendChild(tdText(r.locked ? "TRUE" : "FALSE"));
+          tr.appendChild(tdText(String(r.version ?? "")));
+          tr.appendChild(tdText(String(r.views ?? "")));
+
+          // actions
+          const tdAct = document.createElement("td");
+          const bLock = document.createElement("button");
+          bLock.textContent = "Lock";
+          bLock.onclick = () => doAction("lock", r.id);
+          const bUnlock = document.createElement("button");
+          bUnlock.textContent = "Unlock";
+          bUnlock.style.marginLeft = "6px";
+          bUnlock.onclick = () => doAction("unlock", r.id);
+          tdAct.appendChild(bLock);
+          tdAct.appendChild(bUnlock);
+          tr.appendChild(tdAct);
+
           tbody.appendChild(tr);
         }
         setMsg(`Loaded ${rows.length} record(s).`);
-      } catch(e){
+      } catch (e) {
         setMsg("Failed to load index: " + e.message, false);
       }
     }
 
-    async function doAction(action){
-      const tok = getToken();
-      const refId = $("#refId").value.trim();
-      if(!tok){ setMsg("Enter admin token first.", false); return; }
-      if(!refId){ setMsg("Enter a refId.", false); return; }
-      try{
+    async function doAction(action, idFromRow) {
+      const key = getKey();
+      const refId = idFromRow || $("#refId").value.trim();
+      if (!key) { setMsg("Enter admin key first.", false); return; }
+      if (!refId) { setMsg("Enter a refId or use a row button.", false); return; }
+
+      try {
         const res = await fetch("/api/booking-admin", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-admin-token": tok },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Admin-Key": key
+          },
           body: JSON.stringify({ refId, action })
         });
         const txt = await res.text();
-        if(!res.ok){ setMsg(`Error: ${txt}`, false); return; }
+        if (!res.ok) { setMsg(`Error: ${txt}`, false); return; }
         setMsg(`${action.toUpperCase()} OK for ${refId}.`);
-        loadIndex();
-      }catch(e){
+        await loadIndex();
+      } catch (e) {
         setMsg("Request failed: " + e.message, false);
       }
     }
 
-    // auto-load if token already present
-    if(getToken()) loadIndex();
+    // auto load if key present
+    if (getKey()) loadIndex();
   </script>
 </body>
 </html>
