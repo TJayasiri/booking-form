@@ -36,6 +36,7 @@ const ymd = (d) => (d ? d : "");
 
 function renderHTML(rec, qrDataUrl) {
   const { refId, form = {}, ts, locked } = rec;
+  const { terms = {} } = rec; // Added for terms and conditions
   const {
     meta = {},
     requester = {},
@@ -172,6 +173,11 @@ function renderHTML(rec, qrDataUrl) {
   <p class="small" style="margin-top:12px;">
     © ${new Date().getFullYear()} Greenleaf Assurance · Reference <span class="mono">${esc(refId)}</span>
   </p>
+  <p class="small" style="margin-top:6px;">
+  Terms accepted: <b>${terms.accepted ? "YES" : "NO"}</b>
+  ${terms.version ? ` · Version: ${esc(terms.version)}` : ""}
+  ${terms.url ? ` · ${esc(terms.url)}` : ""}
+</p>
 </body></html>`;
 }
 

@@ -121,7 +121,14 @@ export default function BookingFormApp() {
   const saveJson = async () => {
     try {
       setSaving(true);
-      const payload = { refId, form, ts: new Date().toISOString() };
+      const payload = { refId, form, ts: new Date().toISOString() 
+      terms: {
+     accepted: true,
+     version: "2024-12-06", // update when your ToS changes
+     url: "https://greenleafassurance.com/policies/terms-of-service"
+   }
+  };
+      };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -761,9 +768,15 @@ function Review({ form, setForm, refId, ackTnC, setAckTnC, showQR, qrValue }) {
       <div className="rounded-2xl border border-neutral-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-neutral-200 flex items-center justify-between">
           <div className="font-medium">3.3 — Terms & Conditions</div>
-          <a href="/terms.pdf" target="_blank" rel="noreferrer" className="text-sm text-brand hover:underline print:hidden">
-            Open printable T&Cs
+          <a
+            href="https://greenleafassurance.com/policies/terms-of-service"
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm text-brand hover:underline print:hidden"
+          >
+            Open Terms of Service
           </a>
+
         </div>
         <div className="p-4 text-sm">
           <label className="inline-flex items-center gap-2">
