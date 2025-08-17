@@ -121,14 +121,16 @@ export default function BookingFormApp() {
   const saveJson = async () => {
     try {
       setSaving(true);
-      const payload = { refId, form, ts: new Date().toISOString() 
-      terms: {
-     accepted: true,
-     version: "2024-12-06", // update when your ToS changes
-     url: "https://greenleafassurance.com/policies/terms-of-service"
-   }
+  const payload = { 
+    refId, 
+    form, 
+    ts: new Date().toISOString(),
+    terms: {
+      accepted: true,
+      version: "2024-12-06", // update when your ToS changes
+      url: "https://greenleafassurance.com/policies/terms-of-service"
+    }
   };
-      };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -167,7 +169,11 @@ export default function BookingFormApp() {
     if (!basicValid) { alert("Please complete required fields and accept Terms."); return; }
     if (locked) { alert("This booking is locked by Greenleaf and can no longer be edited."); return; }
 
-    const payload = { refId, form, ts: new Date().toISOString() };
+    const payload = { refId, form, ts: new Date().toISOString(),   terms: {
+    accepted: true,               // or use: accepted: ackTnC
+    version: "2025-08-17",
+    url: "https://greenleafassurance.com/policies/terms-of-service",
+  }, };
     try {
       const res = await fetch("/api/save-booking", {
         method: "POST",
