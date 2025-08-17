@@ -4,10 +4,6 @@ import Logo from "./assets/greenleaf-logo.svg";
 
 /**
  * Greenleaf — Online Service Booking Form (v3, QR-ready)
- * - Multi-step with validation
- * - Auto Reference ID + QR
- * - Save/Load JSON locally
- * - Save/Load via Netlify Functions (save-booking / get-booking)
  */
 export default function BookingFormApp() {
   // ----- Helpers
@@ -33,13 +29,13 @@ export default function BookingFormApp() {
   // ----- Core form state
   const [form, setForm] = useState(() => ({
     meta: {
-      auditType: "Audit",            // "Service Type": Audit | Inspection | Training | Consulting | Other
+      auditType: "Audit",
       auditTypeOther: "",
-      fulfillment: "Fixed",          // "Fixed" | "Window"
-      auditDate: "",                 // Now "Fixed Date"
+      fulfillment: "Fixed",
+      auditDate: "",
       windowStart: "",
       windowEnd: "",
-      services: [],                  // ["SMETA","Quality Inspection",...]
+      services: [],
       clientsExpected: "",
       platformRef: "",
       platformSite: "",
@@ -151,81 +147,67 @@ export default function BookingFormApp() {
 
   // ----- Submit (save to serverless)
   const onSubmit = async () => {
-  // Mark requireds for UI; also relies on basicValid
-  [
-    "requester.company",
-    "requester.contact",
-    "requester.email",
-    "supplier.company",
-    "supplier.contact",
-    "supplier.email",
-    "meta.dateOrWindow",
-  ].forEach(mark);
+    [
+      "requester.company",
+      "requester.contact",
+      "requester.email",
+      "supplier.company",
+      "supplier.contact",
+      "supplier.email",
+      "meta.dateOrWindow",
+    ].forEach(mark);
 
-  if (!basicValid) {
-    alert("Please complete required fields and accept Terms.");
-    return;
-  }
+    if (!basicValid) { alert("Please complete required fields and accept Terms."); return; }
+    if (locked) { alert("This booking is locked by Greenleaf and can no longer be edited."); return; }
 
-  // Extra guard in case button is shown somehow while locked
-  if (locked) {
-    alert("This booking is locked by Greenleaf and can no longer be edited.");
-    return;
-  }
+    const payload = { refId, form, ts: new Date().toISOString() };
+    try {
+      const res = await fetch("/api/save-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-  const payload = { refId, form, ts: new Date().toISOString() };
-
-  try {
-    const res = await fetch("/api/save-booking", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      if (res.status === 423) {
-        alert("This booking is locked by Greenleaf and can no longer be edited.");
-      } else {
-        const txt = await res.text().catch(() => "");
-        alert(`Could not save booking. ${txt || "Please try again."}`);
+      if (!res.ok) {
+        if (res.status === 423) alert("This booking is locked by Greenleaf and can no longer be edited.");
+        else {
+          const txt = await res.text().catch(() => "");
+          alert(`Could not save booking. ${txt || "Please try again."}`);
+        }
+        return;
       }
-      return;
+
+      const url = new URL(window.location.href);
+      url.searchParams.set("ref", refId);
+      window.history.replaceState(null, "", url.toString());
+
+      setShowQR(true);
+      setStep(4);
+    } catch (err) {
+      alert(`Network error: ${err.message}`);
     }
+  };
 
-    // Success: set ?ref= for deep-link/QR and show QR
-    const url = new URL(window.location.href);
-    url.searchParams.set("ref", refId);
-    window.history.replaceState(null, "", url.toString());
-
-    setShowQR(true);
-    setStep(4);
-  } catch (err) {
-    alert(`Network error: ${err.message}`);
-  }
-};
-
-  // ----- Load via ?ref=REF on first render (serverless)
+  // ----- Load via ?ref= on first render
   useEffect(() => {
     const ref = new URLSearchParams(window.location.search).get("ref");
     if (!ref) return;
     (async () => {
       try {
         const res = await fetch("/.netlify/functions/get-booking?ref=" + encodeURIComponent(ref));
-        if (!res.ok) return; // not found -> ignore
-        const data = await res.json(); // { refId, form, ts }
+        if (!res.ok) return;
+        const data = await res.json();
         if (data.refId) setRefId(data.refId);
         if (data.form) setForm(data.form);
-        if (typeof data.locked === 'boolean') setLocked(data.locked);
+        if (typeof data.locked === "boolean") setLocked(data.locked);
         setShowQR(true);
-        setStep(4); // jump to review with QR so user can print instantly
-      } catch {
-        // silently ignore
-      }
+        setStep(4);
+      } catch { /* ignore */ }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // point to your live subdomain (QR text)
+  // QR text
   const qrValue = `https://booking.greenleafassurance.com/?ref=${encodeURIComponent(refId)}`;
 
   return (
@@ -264,12 +246,7 @@ export default function BookingFormApp() {
         {step === 1 && (
           <SectionCard title="1 — Audit Information & Platform Data">
             <ReadOnlyCurtain locked={locked}>
-              <AuditMeta
-                form={form}
-                setForm={setForm}
-                touched={touched}
-                mark={mark}
-              />
+              <AuditMeta form={form} setForm={setForm} touched={touched} mark={mark} />
             </ReadOnlyCurtain>
           </SectionCard>
         )}
@@ -277,12 +254,7 @@ export default function BookingFormApp() {
         {step === 2 && (
           <SectionCard title="2 — Parties & Contacts">
             <ReadOnlyCurtain locked={locked}>
-              <Parties
-                form={form}
-                setForm={setForm}
-                touched={touched}
-                mark={mark}
-              />
+              <Parties form={form} setForm={setForm} touched={touched} mark={mark} />
             </ReadOnlyCurtain>
           </SectionCard>
         )}
@@ -290,11 +262,7 @@ export default function BookingFormApp() {
         {step === 3 && (
           <SectionCard title="3 — Manday Calculation & Special Conditions">
             <ReadOnlyCurtain locked={locked}>
-              <Manday
-                form={form}
-                setForm={setForm}
-                totals={{ totalMale, totalFemale, totalAll }}
-              />
+              <Manday form={form} setForm={setForm} totals={{ totalMale, totalFemale, totalAll }} />
             </ReadOnlyCurtain>
           </SectionCard>
         )}
@@ -313,16 +281,12 @@ export default function BookingFormApp() {
           </SectionCard>
         )}
 
-        {/* Footer Controls */}
+        {/* Footer Controls (single, final) */}
         <div className="flex items-center justify-between gap-3 sticky bottom-0 py-4 bg-gradient-to-t from-white to-white/80 backdrop-blur border-t border-neutral-200 print:hidden">
           <div className="text-xs text-neutral-500">
-            {locked ? (
-              "This booking is locked by Greenleaf and cannot be edited."
-            ) : (
-              <>
-                Tip: Use <span className="font-semibold">Save Draft</span> to download a JSON you can load later.
-              </>
-            )}
+            {locked
+              ? "This booking is locked by Greenleaf and cannot be edited."
+              : <>Tip: Use <span className="font-semibold">Save Draft</span> to download a JSON you can load later.</>}
           </div>
 
           <div className="flex items-center gap-2">
@@ -343,6 +307,19 @@ export default function BookingFormApp() {
               </button>
             )}
 
+            {/* Precise Print (A4) – visible on step 4 */}
+            {step === 4 && (
+              <a
+                href={`/api/booking-print?ref=${encodeURIComponent(refId)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2 rounded-xl border border-neutral-300 hover:bg-neutral-50"
+                title="Open precise A4 layout and print"
+              >
+                Precise Print (A4)
+              </a>
+            )}
+
             {step === 4 && !locked && (
               <button
                 onClick={onSubmit}
@@ -353,9 +330,7 @@ export default function BookingFormApp() {
             )}
 
             {step === 4 && locked && (
-              <span className="px-3 py-2 rounded-xl bg-neutral-200 text-neutral-600">
-                Locked
-              </span>
+              <span className="px-3 py-2 rounded-xl bg-neutral-200 text-neutral-600">Locked</span>
             )}
           </div>
         </div>
@@ -364,9 +339,7 @@ export default function BookingFormApp() {
         <footer className="max-w-6xl mx-auto px-4 mt-4">
           <div className="rounded-2xl border border-neutral-200 bg-white p-4 text-xs text-neutral-500 flex items-center justify-between">
             <span>© {new Date().getFullYear()} Greenleaf Assurance. All rights reserved.</span>
-            <a className="text-brand hover:underline" href="mailto:info@greenleafassurance.com">
-              info@greenleafassurance.com
-            </a>
+            <a className="text-brand hover:underline" href="mailto:info@greenleafassurance.com">info@greenleafassurance.com</a>
           </div>
         </footer>
       </main>
@@ -380,13 +353,11 @@ export default function BookingFormApp() {
           </div>
         </div>
       )}
-      </div>
+    </div>
   );
 }
 
-
 /* ----------------------- UI Components ----------------------- */
-
 
 function SectionCard({ title, children }) {
   return (
@@ -461,11 +432,10 @@ function AuditMeta({ form, setForm, touched, mark }) {
   const m = form.meta;
   const set = (patch) => setForm((prev) => ({ ...prev, meta: { ...prev.meta, ...patch } }));
 
-  // Validation for date/window
-  const dateMissing =
-    m.fulfillment === "Window" ? !(m.windowStart && m.windowEnd) : !(m.auditDate);
+  const dateMissing = m.fulfillment === "Window"
+    ? !(m.windowStart && m.windowEnd)
+    : !(m.auditDate);
 
-  // Services multi-select helpers
   const SERVICE_CHOICES = ["SMETA","Quality Inspection","Social Audit","Training","Consulting","Other"];
   const toggleService = (name) => {
     const next = new Set(m.services || []);
@@ -532,9 +502,7 @@ function AuditMeta({ form, setForm, touched, mark }) {
             value={m.auditDate || ""}
             onChange={(e) => set({ auditDate: e.target.value })}
             onBlur={() => mark("meta.dateOrWindow")}
-            className={
-              touched["meta.dateOrWindow"] && dateMissing && m.fulfillment !== "Window" ? "input-invalid" : ""
-            }
+            className={touched["meta.dateOrWindow"] && dateMissing && m.fulfillment !== "Window" ? "input-invalid" : ""}
           />
         </Field>
         <Field label="Window Start" note={m.fulfillment === "Fixed" ? "(optional)" : "(required)"}>
@@ -543,9 +511,7 @@ function AuditMeta({ form, setForm, touched, mark }) {
             value={m.windowStart || ""}
             onChange={(e) => set({ windowStart: e.target.value })}
             onBlur={() => mark("meta.dateOrWindow")}
-            className={
-              touched["meta.dateOrWindow"] && dateMissing && m.fulfillment === "Window" ? "input-invalid" : ""
-            }
+            className={touched["meta.dateOrWindow"] && dateMissing && m.fulfillment === "Window" ? "input-invalid" : ""}
           />
         </Field>
         <Field label="Window End" note={m.fulfillment === "Fixed" ? "(optional)" : "(required)"}>
@@ -554,9 +520,7 @@ function AuditMeta({ form, setForm, touched, mark }) {
             value={m.windowEnd || ""}
             onChange={(e) => set({ windowEnd: e.target.value })}
             onBlur={() => mark("meta.dateOrWindow")}
-            className={
-              touched["meta.dateOrWindow"] && dateMissing && m.fulfillment === "Window" ? "input-invalid" : ""
-            }
+            className={touched["meta.dateOrWindow"] && dateMissing && m.fulfillment === "Window" ? "input-invalid" : ""}
           />
         </Field>
       </div>
@@ -606,25 +570,13 @@ function AuditMeta({ form, setForm, touched, mark }) {
         </Field>
         <div className="grid grid-cols-1 gap-4">
           <Field label="Platform / Program Reference #">
-            <Input
-              value={m.platformRef || ""}
-              onChange={(e) => set({ platformRef: e.target.value })}
-              placeholder="e.g., Sedex ZC-xxxx"
-            />
+            <Input value={m.platformRef || ""} onChange={(e) => set({ platformRef: e.target.value })} placeholder="e.g., Sedex ZC-xxxx" />
           </Field>
           <Field label="Platform Site # / Facility ID">
-            <Input
-              value={m.platformSite || ""}
-              onChange={(e) => set({ platformSite: e.target.value })}
-              placeholder="e.g., ZS-xxxx"
-            />
+            <Input value={m.platformSite || ""} onChange={(e) => set({ platformSite: e.target.value })} placeholder="e.g., ZS-xxxx" />
           </Field>
           <Field label="Factory / Requester Internal ID">
-            <Input
-              value={m.factoryOrRequesterId || ""}
-              onChange={(e) => set({ factoryOrRequesterId: e.target.value })}
-              placeholder="Internal code if any"
-            />
+            <Input value={m.factoryOrRequesterId || ""} onChange={(e) => set({ factoryOrRequesterId: e.target.value })} placeholder="Internal code if any" />
           </Field>
         </div>
       </div>
@@ -696,10 +648,7 @@ function Parties({ form, setForm }) {
             </label>
           </div>
           {b.differentData ? (
-            <ContactBlock
-              data={b}
-              onChange={(patch) => setForm((prev) => ({ ...prev, buyer: { ...prev.buyer, ...patch } }))}
-            />
+            <ContactBlock data={b} onChange={(patch) => setForm((prev) => ({ ...prev, buyer: { ...prev.buyer, ...patch } }))} />
           ) : (
             <div className="text-sm text-neutral-500 border border-dashed rounded-xl p-4">
               If unchecked, billing will follow <span className="font-medium">Requester</span> details.
