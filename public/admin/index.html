@@ -101,108 +101,51 @@
     </section>
   </main>
 
-  <script>
-    const $ = (id)=>document.getElementById(id);
+<script>
+  // --- Stage update
+  $('btnStage').onclick = async () => {
+    const ref   = $('refForStage').value.trim();
+    const stage = $('stageSel').value;
+    const dueAt = $('dueAt').value || null;
+    const key   = localStorage.getItem('ADMIN_KEY') || '';
+    if(!ref){ alert('Enter a reference'); return; }
+    if(!key){ alert('Admin key missing'); return; }
 
-    // --- Key handling
-    const keyEl = $('adminKey');
-    const keyState = $('keyState');
-    function refreshKeyState(){
-      const has = !!localStorage.getItem('ADMIN_KEY');
-      keyState.textContent = has ? 'Key saved ✓' : 'No key saved';
-      keyState.className = has ? 'ok' : 'bad';
-    }
-    $('saveKey').onclick = ()=>{
-      const v = keyEl.value.trim();
-      if(!v){ alert('Paste a key first'); return; }
-      localStorage.setItem('ADMIN_KEY', v);
-      keyEl.value = '';
-      refreshKeyState();
-      loadIndex();
-    };
-    $('showKey').onclick = ()=>{
-      const v = localStorage.getItem('ADMIN_KEY') || '';
-      if(!v){ alert('No key saved'); return; }
-      prompt('Your current ADMIN_KEY (copy if needed):', v);
-    };
-    refreshKeyState();
+    const res = await fetch('/.netlify/functions/job-update', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','X-Admin-Key':key},
+      body: JSON.stringify({ ref, stage, dueAt })
+    });
+    const txt = await res.text().catch(()=> '');
+    $('stageMsg').textContent = res.ok ? 'Stage updated ✓' : `Error: ${txt}`;
+    $('stageMsg').className = res.ok ? 'ok' : 'bad';
+  };
 
-    // --- Stage update
-    $('btnStage').onclick = async () => {
-      const ref   = $('refForStage').value.trim();
-      const stage = $('stageSel').value;
-      const dueAt = $('dueAt').value || null;
-      const key   = localStorage.getItem('ADMIN_KEY') || '';
-      if(!ref){ alert('Enter a reference'); return; }
-      if(!key){ alert('Admin key missing'); return; }
+  // --- Booking index
+  async function loadIndex(){
+    tbody.innerHTML = "";
+    const key = localStorage.getItem('ADMIN_KEY') || '';
+    if(!key){ setMsg('Enter admin key first.', false); return; }
+    try{
+      const res = await fetch('/.netlify/functions/booking-index?limit=500', {
+        headers:{'X-Admin-Key':key}
+      });
+      ...
+    } catch(e){ ... }
+  }
 
-const res = await fetch('/.netlify/functions/job-update', {
-  method: 'POST',
-  headers: {'Content-Type':'application/json','X-Admin-Key':key},
-  body: JSON.stringify({ ref, stage, dueAt })
-});
-      
-      const txt = await res.text().catch(()=> '');
-      $('stageMsg').textContent = res.ok ? 'Stage updated ✓' : `Error: ${txt}`;
-      $('stageMsg').className = res.ok ? 'ok' : 'bad';
-    };
-
-    // --- Booking index
-    const tbody = document.querySelector('#tbl tbody');
-    function setMsg(text, ok=true){
-      const msg = $('msg');
-      msg.textContent = text;
-      msg.className = ok ? 'ok' : 'bad';
-    }
-    async function loadIndex(){
-      tbody.innerHTML = "";
-      const key = localStorage.getItem('ADMIN_KEY') || '';
-      if(!key){ setMsg('Enter admin key first.', false); return; }
-      try{
-        const res = await fetch('/api/booking-index?limit=500', { headers:{'X-Admin-Key':key} });
-        if(!res.ok){ setMsg('Unauthorized or error loading index.', false); return; }
-        const rows = await res.json();
-        for(const r of rows){
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td>${r.id}</td>
-            <td>${r.ts}</td>
-            <td>${r.name}</td>
-            <td>${r.email}</td>
-            <td>${r.locked ? 'TRUE':'FALSE'}</td>
-            <td>${r.version ?? ''}</td>
-            <td>${r.views ?? ''}</td>
-            <td>
-              <button onclick="doAction('lock','${r.id}')">Lock</button>
-              <button onclick="doAction('unlock','${r.id}')">Unlock</button>
-            </td>`;
-          tbody.appendChild(tr);
-        }
-        setMsg(`Loaded ${rows.length} record(s).`);
-      }catch(e){
-        setMsg('Failed to load index: ' + e.message, false);
-      }
-    }
-    $('btnReload').onclick = loadIndex;
-
-    async function doAction(action, refId){
-      const key = localStorage.getItem('ADMIN_KEY') || '';
-      if(!key){ setMsg('Enter admin key first.', false); return; }
-      try{
-        const res = await fetch('/api/booking-admin', {
-          method:'POST',
-          headers:{'Content-Type':'application/json','X-Admin-Key':key},
-          body:JSON.stringify({ refId, action })
-        });
-        const txt = await res.text();
-        if(!res.ok){ setMsg('Error: '+txt, false); return; }
-        setMsg(`${action.toUpperCase()} OK for ${refId}`);
-        loadIndex();
-      }catch(e){ setMsg('Request failed: '+e.message, false); }
-    }
-
-    // auto-load
-    if(localStorage.getItem('ADMIN_KEY')) loadIndex();
-  </script>
+  async function doAction(action, refId){
+    const key = localStorage.getItem('ADMIN_KEY') || '';
+    if(!key){ setMsg('Enter admin key first.', false); return; }
+    try{
+      const res = await fetch('/.netlify/functions/booking-admin', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Admin-Key':key},
+        body:JSON.stringify({ refId, action })
+      });
+      ...
+    }catch(e){ ... }
+  }
+</script>
 </body>
 </html>
