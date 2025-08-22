@@ -1,95 +1,58 @@
-<!-- TRACKING RIBBON + CONTROLS -->
-<style>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Greenleaf Admin • Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+  /* TRACKING RIBBON + CONTROLS */
   .glb-track-bar {
-    position: sticky;
-    top: 0;
-    z-index: 1000;
-    background: #0b0b0c;
-    color: #fff;
+    position: sticky; top: 0; z-index: 1000;
+    background: #0b0b0c; color: #fff;
     border-bottom: 3px solid #62BBC1;
     padding: 10px 12px;
     font: 13px/1.3 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
   }
-  .glb-track-steps {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
+  .glb-track-steps { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .glb-step {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid #334155;
-    background: #0f1115;
-    color: #e2e8f0;
-    border-radius: 999px;
-    padding: 4px 10px;
-    font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid #334155; background: #0f1115; color: #e2e8f0;
+    border-radius: 999px; padding: 4px 10px; font-weight: 600;
   }
-  .glb-step.done {
-    background: #08373c;
-    border-color: #62BBC1;
-    color: #d1faf5;
-  }
-  .glb-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #475569;
-  }
-  .glb-step.done .glb-dot {
-    background: #62BBC1;
-  }
-  .glb-badge {
-    margin-left: auto;
-    font-weight: 700;
-  }
+  .glb-step.done { background: #08373c; border-color: #62BBC1; color: #d1faf5; }
+  .glb-dot { width: 8px; height: 8px; border-radius: 50%; background: #475569; }
+  .glb-step.done .glb-dot { background: #62BBC1; }
+  .glb-badge { margin-left: auto; font-weight: 700; }
+
+  .glb-wrap { max-width: 1000px; margin: 12px auto; padding: 0 12px; }
   .glb-admin-box {
-    margin: 12px 0;
-    padding: 12px;
-    border: 1px solid #e2e8e6;
-    border-radius: 10px;
-    background: #fff;
+    margin: 12px 0; padding: 12px; border: 1px solid #e2e8e6;
+    border-radius: 10px; background: #fff;
     font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
   }
-  .glb-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-  .glb-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
+  .glb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .glb-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .glb-admin-box input[type="datetime-local"],
   .glb-admin-box select,
   .glb-admin-box input[type="text"] {
-    padding: 6px 8px;
-    border: 1px solid #d1d5db;
-    border-radius: 8px;
-    font-size: 14px;
+    padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px;
   }
   .glb-admin-box button {
-    padding: 6px 10px;
-    border: 1px solid #d1d5db;
-    border-radius: 10px;
-    background: #fff;
-    cursor: pointer;
+    padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 10px;
+    background: #fff; cursor: pointer;
   }
-  .glb-admin-box button.brand {
-    background: #62BBC1;
-    color: #001014;
-    border: none;
-    font-weight: 700;
+  .glb-admin-box button.brand { background: #62BBC1; color: #001014; border: none; font-weight: 700; }
+  .glb-small { color: #64748b; font-size: 12px; }
+
+  @media (max-width: 700px){
+    .glb-grid { grid-template-columns: 1fr; }
+    .glb-track-steps { gap: 6px; }
+    .glb-step { padding: 3px 8px; font-size: 12px; }
+    .glb-badge { font-size: 12px; }
   }
-  .glb-small {
-    color: #64748b;
-    font-size: 12px;
-  }
-</style>
+  </style>
+</head>
+<body>
 
 <!-- Ribbon Display -->
 <div id="trackingRibbon" class="glb-track-bar" hidden>
@@ -97,43 +60,45 @@
   <div class="glb-badge" id="trackCountdown" role="status" aria-live="polite"></div>
 </div>
 
-<!-- Admin Controls -->
-<div class="glb-admin-box">
-  <form onsubmit="return false;">
-    <div class="glb-row">
-      <strong>Status tracker</strong>
-      <span class="glb-small">• Demo persists to this browser. Wire to API later.</span>
-    </div>
-
-    <div class="glb-grid" style="margin-top:8px">
+<div class="glb-wrap">
+  <!-- Admin Controls -->
+  <div class="glb-admin-box">
+    <form onsubmit="return false;">
       <div class="glb-row">
-        <label for="trkRef">Ref:</label>
-        <input id="trkRef" type="text" placeholder="GLB-..." size="24" />
-        <button type="button" id="trkLoad">Load</button>
-        <button type="button" id="trkNew">New</button>
+        <strong>Status tracker</strong>
+        <span class="glb-small">• Demo persists to this browser. Wire to API later.</span>
       </div>
-      <div class="glb-row">
-        <label for="trkTarget">Overall Target:</label>
-        <input id="trkTarget" type="datetime-local" />
-        <button type="button" id="trkSaveTarget">Save target</button>
+
+      <div class="glb-grid" style="margin-top:8px">
+        <div class="glb-row">
+          <label for="trkRef">Ref:</label>
+          <input id="trkRef" type="text" placeholder="GLB-..." size="24" />
+          <button type="button" id="trkLoad">Load</button>
+          <button type="button" id="trkNew">New</button>
+        </div>
+        <div class="glb-row">
+          <label for="trkTarget">Overall Target:</label>
+          <input id="trkTarget" type="datetime-local" />
+          <button type="button" id="trkSaveTarget">Save target</button>
+        </div>
       </div>
-    </div>
 
-    <div class="glb-row" style="margin-top:8px">
-      <label for="trkStepSel">Step:</label>
-      <select id="trkStepSel"></select>
-      <label for="trkDoneAt">Done at:</label>
-      <input id="trkDoneAt" type="datetime-local" />
-      <label for="trkDueAt">Due at:</label>
-      <input id="trkDueAt" type="datetime-local" />
-      <button type="button" class="brand" id="trkMarkDone">Mark done</button>
-      <button type="button" id="trkClear">Clear step</button>
-    </div>
+      <div class="glb-row" style="margin-top:8px">
+        <label for="trkStepSel">Step:</label>
+        <select id="trkStepSel"></select>
+        <label for="trkDoneAt">Done at:</label>
+        <input id="trkDoneAt" type="datetime-local" />
+        <label for="trkDueAt">Due at:</label>
+        <input id="trkDueAt" type="datetime-local" />
+        <button type="button" class="brand" id="trkMarkDone">Mark done</button>
+        <button type="button" id="trkClear">Clear step</button>
+      </div>
 
-    <div class="glb-small" style="margin-top:6px">
-      Default schedule offsets (from Submitted): Accepted +3h • Invoice +24h • Agreement +36h • Schedule +72h • Report +7d • Follow‑up +9d • Completed +10d.
-    </div>
-  </form>
+      <div class="glb-small" style="margin-top:6px">
+        Default schedule offsets (from Submitted): Accepted +3h • Invoice +24h • Agreement +36h • Schedule +72h • Report +7d • Follow‑up +9d • Completed +10d.
+      </div>
+    </form>
+  </div>
 </div>
 
 <!-- Script Logic -->
@@ -167,50 +132,184 @@
   const clearBtn = $('#trkClear');
 
   const LS_KEY = ref => `GLB_TRACK_${ref}`;
-  function loadTracking(ref) {
-    try {
-      return JSON.parse(localStorage.getItem(LS_KEY(ref))) || null;
-    } catch {
-      return null;
-    }
+  const LAST_REF_KEY = 'GLB_LAST_REF';
+
+  function isoNow(){ return new Date().toISOString(); }
+  function addHours(iso, h){ return new Date(new Date(iso).getTime() + h*3600*1000).toISOString(); }
+  function toLocalDT(iso){ return iso ? new Date(iso).toISOString().slice(0,16) : ''; }
+  function fromLocalDT(local){ return local ? new Date(local).toISOString() : null; }
+
+  function loadTracking(ref){
+    try { return JSON.parse(localStorage.getItem(LS_KEY(ref))) || null; }
+    catch { return null; }
   }
-  function saveTracking(trk) {
+  function saveTracking(trk){
     localStorage.setItem(LS_KEY(trk.refId), JSON.stringify(trk));
-    localStorage.setItem('GLB_LAST_REF', trk.refId);
+    localStorage.setItem(LAST_REF_KEY, trk.refId);
   }
 
-  const isoNow = () => new Date().toISOString();
-  const addHours = (iso, h) => new Date(new Date(iso).getTime() + h * 3600 * 1000).toISOString();
-  const toLocalDT = iso => iso ? new Date(iso).toISOString().slice(0, 16) : '';
-
-  function buildInitial(ref) {
+  function buildInitial(ref){
     const started = isoNow();
-    const target = addHours(started, 24 * 10);
+    const target = addHours(started, 24*10);
     return {
       refId: ref,
       startedAt: started,
       targetAt: target,
-      steps: DEFAULT_STEPS.map(s => ({ ...s }))
+      steps: DEFAULT_STEPS.map(s => ({
+        key: s.key, label: s.label, offsetHours: s.offsetHours,
+        dueAt: addHours(started, s.offsetHours), doneAt: null
+      }))
     };
   }
 
-  function renderRibbon(trk) {
+  function renderRibbon(trk){
     ribbon.hidden = !trk;
     stepsWrap.innerHTML = '';
-    if (!trk) return;
+    if(!trk) return;
     trk.steps.forEach(s => {
       const el = document.createElement('div');
       el.className = 'glb-step' + (s.doneAt ? ' done' : '');
       el.innerHTML = `<span class="glb-dot"></span>${s.label}` +
-        (s.doneAt ? ` <span class="glb-small">(✓ ${new Date(s.doneAt).toLocaleString()})</span>` :
-         s.dueAt ? ` <span class="glb-small">(due ${new Date(s.dueAt).toLocaleString()})</span>` : '');
+        (s.doneAt ? ` <span class="glb-small">(✓ ${new Date(s.doneAt).toLocaleString()})</span>`
+                  : s.dueAt ? ` <span class="glb-small">(due ${new Date(s.dueAt).toLocaleString()})</span>` : '');
       stepsWrap.appendChild(el);
     });
   }
 
   let countdownTimer = null;
-  function startCountdown(trk) {
+  function startCountdown(trk){
     clearInterval(countdownTimer);
-    function tick() {
-      const remainMs = new Date(trk.targetAt).getTime() - Date.now();
-      if (remainMs
+    if(!trk) { countdownEl.textContent=''; return; }
+    function tick(){
+      const remain = new Date(trk.targetAt).getTime() - Date.now();
+      if(remain <= 0){ countdownEl.textContent = 'Due now'; return; }
+      const h = Math.floor(remain/3600000);
+      const m = Math.floor((remain%3600000)/60000);
+      const s = Math.floor((remain%60000)/1000);
+      countdownEl.textContent = `Time remaining: ${h}h ${m}m ${s}s`;
+    }
+    tick();
+    countdownTimer = setInterval(tick, 1000);
+  }
+
+  function fillStepSelect(trk){
+    stepSel.innerHTML = '';
+    trk.steps.forEach(s=>{
+      const opt = document.createElement('option');
+      opt.value = s.key;
+      opt.textContent = s.label;
+      stepSel.appendChild(opt);
+    });
+  }
+
+  function syncStepInputs(trk){
+    const key = stepSel.value;
+    const s = trk.steps.find(x=>x.key===key);
+    if(!s) return;
+    doneAtInput.value = toLocalDT(s.doneAt);
+    dueAtInput.value = toLocalDT(s.dueAt);
+  }
+
+  function genRef(){
+    const y = String(new Date().getFullYear()).slice(-2);
+    const stamp = String(Date.now()).slice(-6);
+    const rand = Math.random().toString(36).slice(2,6).toUpperCase();
+    return `GLB-${y}-${stamp}-${rand}`;
+  }
+
+  // --- wire buttons ---
+  loadBtn.onclick = ()=>{
+    const ref = refInput.value.trim();
+    if(!ref){ alert('Enter a reference first'); return; }
+    let trk = loadTracking(ref);
+    if(!trk){ trk = buildInitial(ref); saveTracking(trk); }
+    useTracking(trk);
+  };
+
+  newBtn.onclick = ()=>{
+    const ref = genRef();
+    refInput.value = ref;
+    const trk = buildInitial(ref);
+    saveTracking(trk);
+    useTracking(trk);
+  };
+
+  saveTargetBtn.onclick = ()=>{
+    const ref = refInput.value.trim();
+    if(!ref){ alert('No reference'); return; }
+    const trk = loadTracking(ref);
+    if(!trk){ alert('Load or create first'); return; }
+    const iso = fromLocalDT(targetInput.value);
+    if(!iso){ alert('Pick a target datetime'); return; }
+    trk.targetAt = iso;
+    saveTracking(trk);
+    startCountdown(trk);
+  };
+
+  stepSel.onchange = ()=>{
+    const ref = refInput.value.trim();
+    const trk = loadTracking(ref);
+    if(trk) syncStepInputs(trk);
+  };
+
+  markBtn.onclick = ()=>{
+    const ref = refInput.value.trim();
+    if(!ref){ alert('No reference'); return; }
+    const trk = loadTracking(ref);
+    if(!trk){ alert('Load or create first'); return; }
+    const key = stepSel.value;
+    const s = trk.steps.find(x=>x.key===key);
+    if(!s) return;
+
+    s.doneAt = fromLocalDT(doneAtInput.value) || isoNow();
+    s.dueAt  = fromLocalDT(dueAtInput.value)  || s.dueAt || addHours(trk.startedAt, s.offsetHours);
+
+    saveTracking(trk);
+    renderRibbon(trk);
+    syncStepInputs(trk);
+  };
+
+  clearBtn.onclick = ()=>{
+    const ref = refInput.value.trim();
+    if(!ref){ alert('No reference'); return; }
+    const trk = loadTracking(ref);
+    if(!trk){ alert('Load or create first'); return; }
+    const s = trk.steps.find(x=>x.key===stepSel.value);
+    if(!s) return;
+    s.doneAt = null;
+    // keep dueAt as a reminder
+    saveTracking(trk);
+    renderRibbon(trk);
+    syncStepInputs(trk);
+  };
+
+  function useTracking(trk){
+    refInput.value = trk.refId;
+    targetInput.value = toLocalDT(trk.targetAt);
+    fillStepSelect(trk);
+    renderRibbon(trk);
+    startCountdown(trk);
+    syncStepInputs(trk);
+    // scroll to ribbon
+    window.scrollTo({top:0, behavior:'smooth'});
+  }
+
+  // --- boot: load last ref if present ---
+  const lastRef = localStorage.getItem(LAST_REF_KEY);
+  if(lastRef){
+    const trk = loadTracking(lastRef);
+    if(trk) useTracking(trk);
+    else ribbon.hidden = true;
+  } else {
+    ribbon.hidden = true;
+  }
+
+  /* OPTIONAL: If/when you wire to your APIs, you can:
+     - Load:   const r = await fetch('/.netlify/functions/job?ref=GLB-...') ...
+     - Update: await fetch('/.netlify/functions/job-update', {method:'POST', headers:{'Content-Type':'application/json','X-Admin-Key':key}, body:JSON.stringify({ref, stage, dueAt})})
+     Then map stages <-> DEFAULT_STEPS keys.
+  */
+})();
+</script>
+</body>
+</html>
