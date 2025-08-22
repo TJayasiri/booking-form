@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Greenleaf Admin</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 16px; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; vertical-align: top; }
+    th { background: #f7f7f7; text-align: left; }
+    .ok { color: #166534; }
+    .err { color: #991b1b; }
+    input[type=text] { padding:6px 8px; font-size:14px; }
+    button { padding:6px 10px; font-size:14px; cursor:pointer; }
+    .muted { color:#666; font-size: 12px; }
+    .nowrap { white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <h1>Greenleaf — Admin</h1>
+
+  <div class="row">
+    <label>Admin Key:
+      <input id="key" type="text" placeholder="paste ADMIN_KEY here" size="44">
+    </label>
+    <button id="saveKey">Use key</button>
+    <span class="muted">Stored in your browser (localStorage).</span>
+  </div>
+
+  <div class="row" style="margin-top:10px;">
+    <input id="refId" type="text" placeholder="Enter refId (e.g., GLB-...)" size="40" />
+    <button id="btnLock">Lock</button>
+    <button id="btnUnlock">Unlock</button>
+    <button id="btnReload">Reload list</button>
+    <span id="msg"></span>
+  </div>
+
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th>refId</th>
+        <th class="nowrap">ts</th>
+        <th>name</th>
+        <th>email</th>
+        <th class="nowrap">locked</th>
+        <th class="nowrap">version</th>
+        <th class="nowrap">views</th>
+        <th>actions</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    // --- helpers
+    const $ = (s) => document.querySelector(s);
+    const msg = $("#msg");
+    const keyInput = $("#key");
+    const tbody = $("#tbl tbody");
+
+    function setMsg(text, ok=true) {
+      msg.textContent = text;
+      msg.className = ok ? "ok" : "err";
+    }
+    function getKey() {
+      return localStorage.getItem("ADMIN_KEY") || "";
+    }
+    function setKey(k) {
+      localStorage.setItem("ADMIN_KEY", k || "");
+    }
+    function tdText(text) {
+      const td = document.createElement("td");
+      td.textContent = text ?? "";
+      return td;
+    }
+
+    // preload saved key
+    keyInput.value = getKey();
+
+    // wire buttons
+    $("#saveKey").onclick = () => {
+      setKey(keyInput.value.trim());
+      setMsg("Key saved in this browser.");
+      loadIndex();
+    };
+    $("#btnReload").onclick = loadIndex;
+    $("#btnLock").onclick = () => doAction("lock");
+    $("#btnUnlock").onclick = () => doAction("unlock");
+
+    async function loadIndex() {
+      tbody.innerHTML = "";
+      const key = getKey();
+      if (!key) { setMsg("Enter admin key, then click 'Use key'.", false); return; }
+      try {
+        const res = await fetch("/api/booking-index?limit=500", {
+          headers: { "X-Admin-Key": key }
+        });
+        if (!res.ok) { setMsg("Unauthorized or error loading index.", false); return; }
+        const rows = await res.json();
+
+        for (const r of rows) {
+          const tr = document.createElement("tr");
+          tr.appendChild(tdText(r.id));
+          tr.appendChild(tdText(r.ts));
+          tr.appendChild(tdText(r.name));
+          tr.appendChild(tdText(r.email));
+          tr.appendChild(tdText(r.locked ? "TRUE" : "FALSE"));
+          tr.appendChild(tdText(String(r.version ?? "")));
+          tr.appendChild(tdText(String(r.views ?? "")));
+
+          // actions
+          const tdAct = document.createElement("td");
+          const bLock = document.createElement("button");
+          bLock.textContent = "Lock";
+          bLock.onclick = () => doAction("lock", r.id);
+          const bUnlock = document.createElement("button");
+          bUnlock.textContent = "Unlock";
+          bUnlock.style.marginLeft = "6px";
+          bUnlock.onclick = () => doAction("unlock", r.id);
+          tdAct.appendChild(bLock);
+          tdAct.appendChild(bUnlock);
+          tr.appendChild(tdAct);
+
+          tbody.appendChild(tr);
+        }
+        setMsg(`Loaded ${rows.length} record(s).`);
+      } catch (e) {
+        setMsg("Failed to load index: " + e.message, false);
+      }
+    }
+
+    async function doAction(action, idFromRow) {
+      const key = getKey();
+      const refId = idFromRow || $("#refId").value.trim();
+      if (!key) { setMsg("Enter admin key first.", false); return; }
+      if (!refId) { setMsg("Enter a refId or use a row button.", false); return; }
+
+      try {
+        const res = await fetch("/api/booking-admin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Admin-Key": key
+          },
+          body: JSON.stringify({ refId, action })
+        });
+        const txt = await res.text();
+        if (!res.ok) { setMsg(`Error: ${txt}`, false); return; }
+        setMsg(`${action.toUpperCase()} OK for ${refId}.`);
+        await loadIndex();
+      } catch (e) {
+        setMsg("Request failed: " + e.message, false);
+      }
+    }
+
+    // auto load if key present
+    if (getKey()) loadIndex();
+  </script>
+</body>
+</html>
