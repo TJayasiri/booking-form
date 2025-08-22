@@ -20,12 +20,17 @@
     .muted{color:#6b7280;font-size:12px}
     .note{padding:8px 10px;border:1px dashed #cbd5e1;border-radius:8px;background:#fff}
     .ok{color:#047857}.bad{color:#b91c1c}
-
     table{border-collapse:collapse;width:100%;margin-top:12px}
     th,td{border:1px solid #ddd;padding:6px 8px;font-size:13px;vertical-align:top}
     th{background:#f7f7f7;text-align:left}
+
+    /* Small-screen polish */
+    @media (max-width:640px){
+      .row{flex-direction:column;align-items:stretch}
+      input,select,button{font-size:14px}
+      table{font-size:12px}
+    }
   </style>
-  
 </head>
 <body>
   <header>
@@ -101,51 +106,139 @@
     </section>
   </main>
 
-<script>
-  // --- Stage update
-  $('btnStage').onclick = async () => {
-    const ref   = $('refForStage').value.trim();
-    const stage = $('stageSel').value;
-    const dueAt = $('dueAt').value || null;
-    const key   = localStorage.getItem('ADMIN_KEY') || '';
-    if(!ref){ alert('Enter a reference'); return; }
-    if(!key){ alert('Admin key missing'); return; }
+  <script>
+    /* ---------- helpers ---------- */
+    const $ = (id) => document.getElementById(id);
+    const tbody = document.querySelector('#tbl tbody');
+    function setBanner(elId, text, ok=true){
+      const el = $(elId);
+      el.textContent = text;
+      el.className = ok ? 'ok' : 'bad';
+    }
+    function refreshKeyState(){
+      const has = !!localStorage.getItem('ADMIN_KEY');
+      const el = $('keyState');
+      el.textContent = has ? 'Key saved ✓' : 'No key saved';
+      el.className = has ? 'ok' : 'bad';
+    }
 
-    const res = await fetch('/.netlify/functions/job-update', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json','X-Admin-Key':key},
-      body: JSON.stringify({ ref, stage, dueAt })
-    });
-    const txt = await res.text().catch(()=> '');
-    $('stageMsg').textContent = res.ok ? 'Stage updated ✓' : `Error: ${txt}`;
-    $('stageMsg').className = res.ok ? 'ok' : 'bad';
-  };
+    /* ---------- key UI ---------- */
+    $('saveKey').onclick = ()=>{
+      const v = $('adminKey').value.trim();
+      if(!v){ alert('Paste a key first'); return; }
+      localStorage.setItem('ADMIN_KEY', v);
+      $('adminKey').value = '';
+      refreshKeyState();
+      loadIndex();
+    };
+    $('showKey').onclick = ()=>{
+      const v = localStorage.getItem('ADMIN_KEY') || '';
+      if(!v){ alert('No key saved'); return; }
+      prompt('Your current ADMIN_KEY (copy if needed):', v);
+    };
+    refreshKeyState();
 
-  // --- Booking index
-  async function loadIndex(){
-    tbody.innerHTML = "";
-    const key = localStorage.getItem('ADMIN_KEY') || '';
-    if(!key){ setMsg('Enter admin key first.', false); return; }
-    try{
-      const res = await fetch('/.netlify/functions/booking-index?limit=500', {
-        headers:{'X-Admin-Key':key}
-      });
-      ...
-    } catch(e){ ... }
-  }
+    /* ---------- stage update ---------- */
+    $('btnStage').onclick = async () => {
+      const ref   = $('refForStage').value.trim();
+      const stage = $('stageSel').value;
+      const dueAtRaw = $('dueAt').value || null; // "YYYY-MM-DDTHH:mm"
+      const key   = localStorage.getItem('ADMIN_KEY') || '';
+      if(!ref){ alert('Enter a reference'); return; }
+      if(!key){ alert('Admin key missing'); return; }
 
-  async function doAction(action, refId){
-    const key = localStorage.getItem('ADMIN_KEY') || '';
-    if(!key){ setMsg('Enter admin key first.', false); return; }
-    try{
-      const res = await fetch('/.netlify/functions/booking-admin', {
-        method:'POST',
-        headers:{'Content-Type':'application/json','X-Admin-Key':key},
-        body:JSON.stringify({ refId, action })
-      });
-      ...
-    }catch(e){ ... }
-  }
-</script>
+      // Convert to ISO if provided
+      const dueAt = dueAtRaw ? new Date(dueAtRaw).toISOString() : null;
+
+      try{
+        const res = await fetch('/.netlify/functions/job-update', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json','X-Admin-Key':key},
+          body: JSON.stringify({ ref, stage, dueAt })
+        });
+        const txt = await res.text().catch(()=> '');
+        const ok = res.ok;
+        setBanner('stageMsg', ok ? `Stage updated ✓ (${ref})` : `Error: ${txt || res.status}`, ok);
+        if(ok) loadIndex();
+      }catch(e){
+        setBanner('stageMsg', 'Request failed: ' + e.message, false);
+      }
+    };
+
+    /* ---------- booking index ---------- */
+    async function loadIndex(){
+      tbody.innerHTML = "";
+      const key = localStorage.getItem('ADMIN_KEY') || '';
+      if(!key){ setBanner('msg','Enter admin key first.', false); return; }
+      try{
+        const res = await fetch('/.netlify/functions/booking-index?limit=500', {
+          headers:{'X-Admin-Key':key}
+        });
+        if(!res.ok){
+          const txt = await res.text().catch(()=> '');
+          setBanner('msg', 'Unauthorized or error loading index. ' + txt, false);
+          return;
+        }
+        const rows = await res.json();
+        for(const r of rows){
+          const tr = document.createElement('tr');
+
+          // refId cell clickable -> fills the stage box
+          const tdRef = document.createElement('td');
+          const a = document.createElement('a');
+          a.href = '#';
+          a.textContent = r.id;
+          a.onclick = (e)=>{ e.preventDefault(); $('refForStage').value = r.id; window.scrollTo({top:0,behavior:'smooth'}); };
+          tdRef.appendChild(a);
+          tr.appendChild(tdRef);
+
+          tr.appendChild(cell(r.ts));
+          tr.appendChild(cell(r.name));
+          tr.appendChild(cell(r.email));
+          tr.appendChild(cell(r.locked ? 'TRUE':'FALSE'));
+          tr.appendChild(cell(String(r.version ?? '')));
+          tr.appendChild(cell(String(r.views ?? '')));
+
+          const tdAct = document.createElement('td');
+          const bLock = button('Lock', ()=>doAction('lock', r.id));
+          const bUnlock = button('Unlock', ()=>doAction('unlock', r.id));
+          bUnlock.style.marginLeft = '6px';
+          tdAct.appendChild(bLock);
+          tdAct.appendChild(bUnlock);
+          tr.appendChild(tdAct);
+
+          tbody.appendChild(tr);
+        }
+        setBanner('msg', `Loaded ${rows.length} record(s).`, true);
+      }catch(e){
+        setBanner('msg','Failed to load index: ' + e.message, false);
+      }
+    }
+    function cell(text){ const td=document.createElement('td'); td.textContent=text??''; return td; }
+    function button(label, onClick){ const b=document.createElement('button'); b.textContent=label; b.onclick=onClick; return b; }
+    $('btnReload').onclick = loadIndex;
+
+    /* ---------- lock / unlock ---------- */
+    async function doAction(action, refId){
+      const key = localStorage.getItem('ADMIN_KEY') || '';
+      if(!key){ setBanner('msg','Enter admin key first.', false); return; }
+      try{
+        const res = await fetch('/.netlify/functions/booking-admin', {
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-Admin-Key':key},
+          body:JSON.stringify({ refId, action })
+        });
+        const txt = await res.text().catch(()=> '');
+        const ok = res.ok;
+        setBanner('msg', ok ? `${action.toUpperCase()} OK for ${refId}` : `Error: ${txt || res.status}`, ok);
+        if(ok) loadIndex();
+      }catch(e){
+        setBanner('msg','Request failed: ' + e.message, false);
+      }
+    }
+
+    /* ---------- auto-load ---------- */
+    if(localStorage.getItem('ADMIN_KEY')) loadIndex();
+  </script>
 </body>
 </html>
