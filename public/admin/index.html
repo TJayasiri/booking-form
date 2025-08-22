@@ -2,161 +2,119 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Greenleaf Admin</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Greenleaf Admin • Hub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 16px; }
-    .row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
-    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
-    th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; vertical-align: top; }
-    th { background: #f7f7f7; text-align: left; }
-    .ok { color: #166534; }
-    .err { color: #991b1b; }
-    input[type=text] { padding:6px 8px; font-size:14px; }
-    button { padding:6px 10px; font-size:14px; cursor:pointer; }
-    .muted { color:#666; font-size: 12px; }
-    .nowrap { white-space: nowrap; }
+    :root{--brand:#62BBC1}
+    body{font-family:Inter,system-ui,Arial,sans-serif;margin:0;background:#f7f7f8;color:#0b0b0c}
+    header{position:sticky;top:0;background:#fffdd;border-bottom:1px solid #e5e7eb;backdrop-filter:saturate(1.2) blur(6px)}
+    .wrap{max-width:960px;margin:0 auto;padding:18px}
+    .grid{display:grid;gap:14px}
+    .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+    input,select,button{padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff}
+    input:focus,select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px #62bbc133}
+    button{background:var(--brand);color:#032b2f;border:none;cursor:pointer}
+    button.secondary{background:#fff;border:1px solid #cbd5e1}
+    a.card{display:block;padding:14px 16px;border:1px solid #e5e7eb;border-radius:14px;background:#fff;text-decoration:none;color:inherit}
+    a.card:hover{border-color:#cbd5e1;background:#fafafa}
+    .muted{color:#6b7280;font-size:12px}
+    .note{padding:10px 12px;border:1px dashed #cbd5e1;border-radius:10px;background:#fff}
+    .ok{color:#047857}.bad{color:#b91c1c}
   </style>
 </head>
 <body>
-  <h1>Greenleaf — Admin</h1>
+  <header>
+    <div class="wrap row">
+      <h1 style="margin:0;font-size:18px">Greenleaf Admin</h1>
+      <span class="muted">Internal tools • do not share</span>
+    </div>
+  </header>
 
-  <div class="row">
-    <label>Admin Key:
-      <input id="key" type="text" placeholder="paste ADMIN_KEY here" size="44">
-    </label>
-    <button id="saveKey">Use key</button>
-    <span class="muted">Stored in your browser (localStorage).</span>
-  </div>
+  <main class="wrap grid" style="margin-top:16px">
+    <!-- Quick links -->
+    <div class="row" style="gap:12px">
+      <a class="card" href="./tracker.html">📊 Tracker — view job + history</a>
+      <a class="card" href="./locks.html">🔒 Locks — lock/unlock a booking</a>
+    </div>
 
-  <div class="row" style="margin-top:10px;">
-    <input id="refId" type="text" placeholder="Enter refId (e.g., GLB-...)" size="40" />
-    <button id="btnLock">Lock</button>
-    <button id="btnUnlock">Unlock</button>
-    <button id="btnReload">Reload list</button>
-    <span id="msg"></span>
-  </div>
+    <!-- Admin key -->
+    <section class="grid">
+      <h2 style="margin:6px 0 0">Admin key</h2>
+      <div class="row">
+        <input id="adminKey" type="password" placeholder="Paste ADMIN_KEY…" size="36" />
+        <button id="saveKey">Save key</button>
+        <button class="secondary" id="showKey">Show</button>
+        <span id="keyState" class="muted"></span>
+      </div>
+      <div class="note">Your key is stored only in <strong>this browser’s</strong> localStorage as <code>ADMIN_KEY</code>.</div>
+    </section>
 
-  <table id="tbl">
-    <thead>
-      <tr>
-        <th>refId</th>
-        <th class="nowrap">ts</th>
-        <th>name</th>
-        <th>email</th>
-        <th class="nowrap">locked</th>
-        <th class="nowrap">version</th>
-        <th class="nowrap">views</th>
-        <th>actions</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+    <!-- Stage updater -->
+    <section class="grid">
+      <h2 style="margin:6px 0 0">Update workflow stage</h2>
+      <div class="row" style="margin-top:6px">
+        <input id="refForStage" type="text" placeholder="GLB-…" size="24" />
+        <select id="stageSel">
+          <option value="APPLICATION_SUBMITTED">Application submitted</option>
+          <option value="ACCEPTED_INITIATED">Accepted &amp; initiated (locked)</option>
+          <option value="ESTIMATE_INVOICE_ISSUED">Estimate/Invoice issued</option>
+          <option value="AGREEMENT_GENERATED">Agreement generated</option>
+          <option value="SCHEDULE_RELEASED">Schedule released</option>
+          <option value="REPORT_ACTION_TAKEN">Report / Action taken</option>
+          <option value="FOLLOW_UP">Follow-up</option>
+          <option value="COMPLETED">Completed</option>
+        </select>
+        <input id="dueAt" type="datetime-local" />
+        <button id="btnStage">Update Stage</button>
+      </div>
+      <div id="stageMsg" class="muted"></div>
+    </section>
+  </main>
 
   <script>
-    // --- helpers
-    const $ = (s) => document.querySelector(s);
-    const msg = $("#msg");
-    const keyInput = $("#key");
-    const tbody = $("#tbl tbody");
-
-    function setMsg(text, ok=true) {
-      msg.textContent = text;
-      msg.className = ok ? "ok" : "err";
+    // --- Key UI
+    const $ = (id)=>document.getElementById(id);
+    const keyEl = $('adminKey');
+    const keyState = $('keyState');
+    function refreshKeyState(){
+      const has = !!localStorage.getItem('ADMIN_KEY');
+      keyState.textContent = has ? 'Key saved ✓' : 'No key saved';
+      keyState.className = has ? 'ok' : 'bad';
     }
-    function getKey() {
-      return localStorage.getItem("ADMIN_KEY") || "";
-    }
-    function setKey(k) {
-      localStorage.setItem("ADMIN_KEY", k || "");
-    }
-    function tdText(text) {
-      const td = document.createElement("td");
-      td.textContent = text ?? "";
-      return td;
-    }
-
-    // preload saved key
-    keyInput.value = getKey();
-
-    // wire buttons
-    $("#saveKey").onclick = () => {
-      setKey(keyInput.value.trim());
-      setMsg("Key saved in this browser.");
-      loadIndex();
+    $('saveKey').onclick = ()=>{
+      const v = keyEl.value.trim();
+      if(!v){ alert('Paste a key first'); return; }
+      localStorage.setItem('ADMIN_KEY', v);
+      keyEl.value = '';
+      refreshKeyState();
+      alert('Key saved for this browser.');
     };
-    $("#btnReload").onclick = loadIndex;
-    $("#btnLock").onclick = () => doAction("lock");
-    $("#btnUnlock").onclick = () => doAction("unlock");
+    $('showKey').onclick = ()=>{
+      const v = localStorage.getItem('ADMIN_KEY') || '';
+      if(!v){ alert('No key saved'); return; }
+      prompt('Your current ADMIN_KEY (copy if needed):', v);
+    };
+    refreshKeyState();
 
-    async function loadIndex() {
-      tbody.innerHTML = "";
-      const key = getKey();
-      if (!key) { setMsg("Enter admin key, then click 'Use key'.", false); return; }
-      try {
-        const res = await fetch("/api/booking-index?limit=500", {
-          headers: { "X-Admin-Key": key }
-        });
-        if (!res.ok) { setMsg("Unauthorized or error loading index.", false); return; }
-        const rows = await res.json();
+    // --- Stage update
+    $('btnStage').onclick = async () => {
+      const ref   = $('refForStage').value.trim();
+      const stage = $('stageSel').value;
+      const dueAt = $('dueAt').value || null;
+      const key   = localStorage.getItem('ADMIN_KEY') || '';
+      if(!ref){ alert('Enter a reference'); return; }
+      if(!key){ alert('Admin key missing'); return; }
 
-        for (const r of rows) {
-          const tr = document.createElement("tr");
-          tr.appendChild(tdText(r.id));
-          tr.appendChild(tdText(r.ts));
-          tr.appendChild(tdText(r.name));
-          tr.appendChild(tdText(r.email));
-          tr.appendChild(tdText(r.locked ? "TRUE" : "FALSE"));
-          tr.appendChild(tdText(String(r.version ?? "")));
-          tr.appendChild(tdText(String(r.views ?? "")));
-
-          // actions
-          const tdAct = document.createElement("td");
-          const bLock = document.createElement("button");
-          bLock.textContent = "Lock";
-          bLock.onclick = () => doAction("lock", r.id);
-          const bUnlock = document.createElement("button");
-          bUnlock.textContent = "Unlock";
-          bUnlock.style.marginLeft = "6px";
-          bUnlock.onclick = () => doAction("unlock", r.id);
-          tdAct.appendChild(bLock);
-          tdAct.appendChild(bUnlock);
-          tr.appendChild(tdAct);
-
-          tbody.appendChild(tr);
-        }
-        setMsg(`Loaded ${rows.length} record(s).`);
-      } catch (e) {
-        setMsg("Failed to load index: " + e.message, false);
-      }
-    }
-
-    async function doAction(action, idFromRow) {
-      const key = getKey();
-      const refId = idFromRow || $("#refId").value.trim();
-      if (!key) { setMsg("Enter admin key first.", false); return; }
-      if (!refId) { setMsg("Enter a refId or use a row button.", false); return; }
-
-      try {
-        const res = await fetch("/api/booking-admin", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Admin-Key": key
-          },
-          body: JSON.stringify({ refId, action })
-        });
-        const txt = await res.text();
-        if (!res.ok) { setMsg(`Error: ${txt}`, false); return; }
-        setMsg(`${action.toUpperCase()} OK for ${refId}.`);
-        await loadIndex();
-      } catch (e) {
-        setMsg("Request failed: " + e.message, false);
-      }
-    }
-
-    // auto load if key present
-    if (getKey()) loadIndex();
+      const res = await fetch('/api/job/update', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json','X-Admin-Key':key},
+        body: JSON.stringify({ ref, stage, dueAt })
+      });
+      const txt = await res.text().catch(()=> '');
+      $('stageMsg').textContent = res.ok ? 'Stage updated ✓' : `Error: ${txt}`;
+      $('stageMsg').className = res.ok ? 'ok' : 'bad';
+      alert(res.ok ? 'Stage updated' : `Error: ${txt || res.status}`);
+    };
   </script>
 </body>
 </html>
