@@ -39,7 +39,9 @@
         <button id="lock" class="warn">Lock</button>
         <button id="unlock" class="danger">Unlock</button>
       </div>
-      <p class="muted" style="margin-top:10px">Uses <code>X-Admin-Key</code> header and POST body <code>{ ref, lock: true|false }</code>.</p>
+      <p class="muted" style="margin-top:10px">
+        Uses <code>X-Admin-Key</code> header and POST body <code>{ ref, lock: true|false }</code>.
+      </p>
     </section>
 
     <section id="jobCard" class="card" style="display:none;margin-top:14px">
@@ -49,79 +51,74 @@
     </section>
   </main>
 
-  <script>
-    const $ = id => document.getElementById(id);
-    const KEY = ()=> localStorage.getItem('ADMIN_KEY') || '';
+<script>
+const $ = id => document.getElementById(id);
+const KEY = ()=> localStorage.getItem('ADMIN_KEY') || '';
 
-    async function check(ref){
-      $('status').textContent = 'Checking…';
-      try{
-        const r = await fetch('/api/job?ref=' + encodeURIComponent(ref));
-        if(!r.ok){ const t = await r.text(); throw new Error(t || r.status); }
-        const data = await r.json();
-        const job = data.job || {};
-        $('jobCard').style.display = '';
-        $('refOut').textContent = ref;
-        $('lockedOut').textContent = (typeof job.locked==='boolean') ? (job.locked?'Yes':'No') : 'Unknown';
-        $('stageOut').textContent = job.current_stage || 'APPLICATION_SUBMITTED';
-        $('status').textContent = 'OK';
-        $('status').className = 'ok';
-      }catch(e){
-        $('status').textContent = 'Error';
-        $('status').className = 'bad';
-        alert('Error: ' + e.message);
-      }
-    }
+async function check(ref){
+  $('status').textContent = 'Checking…'; $('status').className = 'muted';
+  try{
+    const r = await fetch('/.netlify/functions/job?ref='+encodeURIComponent(ref), {
+      headers:{'X-Admin-Key': KEY()}
+    });
+    if(!r.ok){ throw new Error(await r.text() || r.status); }
+    const { job={} } = await r.json();
+    $('jobCard').style.display = '';
+    $('refOut').textContent = ref;
+    $('lockedOut').textContent = job.locked ? 'Yes' : 'No';
+    $('stageOut').textContent = job.current_stage || 'APPLICATION_SUBMITTED';
+    $('status').textContent = 'OK'; $('status').className = 'ok';
+  }catch(e){
+    $('status').textContent = 'Error'; $('status').className = 'bad';
+    $('jobCard').style.display = 'none';
+    alert('Error: '+e.message);
+  }
+}
 
-    async function postTo(paths, body){
-      const key = KEY();
-      if(!key){ alert('Admin key missing — save it in Admin hub'); throw new Error('no key'); }
-      let lastErr = null;
-      for(const p of paths){
-        try{
-          const r = await fetch(p, {
-            method:'POST',
-            headers:{'Content-Type':'application/json','X-Admin-Key':key},
-            body: JSON.stringify(body)
-          });
-          if(!r.ok){ const t = await r.text(); throw new Error(t || r.status); }
-          return await r.json().catch(()=> ({}));
-        }catch(e){ lastErr = e; }
-      }
-      throw lastErr || new Error('All endpoints failed');
-    }
+async function postLock(ref, lock){
+  const key = KEY();
+  if(!key){ alert('Admin key missing — save it in Admin hub'); throw new Error('No key'); }
+  const r = await fetch('/.netlify/functions/job-lock', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Admin-Key':key},
+    body: JSON.stringify({ ref, lock })
+  });
+  if(!r.ok){ throw new Error(await r.text() || r.status); }
+  return r.json().catch(()=> ({}));
+}
 
-    $('check').onclick = ()=> {
-      const ref = $('ref').value.trim();
-      if(!ref) return alert('Enter a reference');
-      check(ref);
-    };
+// UI buttons
+$('check').onclick = ()=>{
+  const ref = $('ref').value.trim();
+  if(!ref) return alert('Enter a reference');
+  check(ref);
+};
 
-    $('lock').onclick = async ()=>{
-      const ref = $('ref').value.trim();
-      if(!ref) return alert('Enter a reference');
-      try{
-        $('status').textContent = 'Locking…';
-        await postTo(['/api/job/lock','/api/lock'], { ref, lock:true });
-        $('status').textContent = 'Locked ✓'; $('status').className = 'ok';
-        check(ref);
-      }catch(e){ $('status').textContent = 'Error'; $('status').className = 'bad'; alert('Error: '+e.message); }
-    };
+$('lock').onclick = async ()=>{
+  const ref = $('ref').value.trim();
+  if(!ref) return alert('Enter a reference');
+  try{
+    $('status').textContent = 'Locking…'; $('status').className='muted';
+    await postLock(ref,true);
+    $('status').textContent = 'Locked ✓'; $('status').className='ok';
+    check(ref);
+  }catch(e){ $('status').textContent='Error'; $('status').className='bad'; alert('Error: '+e.message); }
+};
 
-    $('unlock').onclick = async ()=>{
-      const ref = $('ref').value.trim();
-      if(!ref) return alert('Enter a reference');
-      try{
-        $('status').textContent = 'Unlocking…';
-        await postTo(['/api/job/lock','/api/lock'], { ref, lock:false });
-        $('status').textContent = 'Unlocked ✓'; $('status').className = 'ok';
-        check(ref);
-      }catch(e){ $('status').textContent = 'Error'; $('status').className = 'bad'; alert('Error: '+e.message); }
-    };
+$('unlock').onclick = async ()=>{
+  const ref = $('ref').value.trim();
+  if(!ref) return alert('Enter a reference');
+  try{
+    $('status').textContent = 'Unlocking…'; $('status').className='muted';
+    await postLock(ref,false);
+    $('status').textContent = 'Unlocked ✓'; $('status').className='ok';
+    check(ref);
+  }catch(e){ $('status').textContent='Error'; $('status').className='bad'; alert('Error: '+e.message); }
+};
 
-    // Auto-load if ?ref=
-    const refFromUrl = new URLSearchParams(location.search).get('ref');
-    if(refFromUrl){ $('ref').value = refFromUrl; check(refFromUrl); }
-  </script>
+// Auto-load ?ref= param
+const refFromUrl = new URLSearchParams(location.search).get('ref');
+if(refFromUrl){ $('ref').value = refFromUrl; check(refFromUrl); }
+</script>
 </body>
 </html>
