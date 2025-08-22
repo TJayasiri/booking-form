@@ -16,28 +16,52 @@ function makeStore() {
   });
 }
 
-const json = (status, body) => ({
-  statusCode: status,
-  headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-  body: JSON.stringify(body),
-});
+const baseHeaders = {
+  "Content-Type": "application/json; charset=utf-8",
+  "Cache-Control": "no-store",
+  // light CORS so you can hit this from anywhere during admin/testing
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type, X-Admin-Key",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+const json = (status, body) => ({ statusCode: status, headers: baseHeaders, body: JSON.stringify(body) });
 
 function isAdmin(event) {
-  const k = event.headers?.["x-admin-key"] || event.headers?.["X-Admin-Key"];
-  return k && process.env.ADMIN_KEY && k === process.env.ADMIN_KEY;
+  const h = event.headers || {};
+  const key = h["x-admin-key"] || h["X-Admin-Key"] || h["x-admin-key".toLowerCase()];
+  return key && process.env.ADMIN_KEY && key === process.env.ADMIN_KEY;
+}
+
+function parseBody(event) {
+  // Try JSON first
+  try {
+    const b = JSON.parse(event.body || "{}");
+    if (b && typeof b === "object") return b;
+  } catch {}
+  // Try URL-encoded (Netlify sometimes sends this if headers mismatch)
+  try {
+    const u = new URLSearchParams(event.body || "");
+    const obj = Object.fromEntries(u.entries());
+    if (Object.keys(obj).length) return obj;
+  } catch {}
+  return {};
 }
 
 export async function handler(event) {
+  if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
+
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
   if (!isAdmin(event)) return json(401, { error: "Unauthorized" });
 
-  let body;
-  try { body = JSON.parse(event.body || "{}"); } catch { return json(400, { error: "Invalid JSON" }); }
-  const ref = (body.ref || body.refId || "").trim();
-  const stage = (body.stage || "").trim();
-  const dueAt = (body.dueAt || null);
+  // Accept body OR querystring
+  const body = parseBody(event);
+  const qs = new URLSearchParams(event.queryStringParameters || {});
+  const ref = (body.ref || body.refId || qs.get("ref") || qs.get("refId") || "").trim();
+  const stage = (body.stage || qs.get("stage") || "").trim();
+  const dueAt = (body.dueAt ?? qs.get("dueAt")) ?? null;
 
-  if (!ref) return json(400, { error: "Missing ref" });
+  if (!ref)   return json(400, { error: "Missing ref" });
   if (!stage) return json(400, { error: "Missing stage" });
 
   try {
@@ -52,7 +76,11 @@ export async function handler(event) {
         return json(404, { error: "Record not found" });
       }
 
-      rec.job = rec.job || { current_stage: "APPLICATION_SUBMITTED", created_at: rec.ts || new Date().toISOString(), due_at: null };
+      rec.job = rec.job || {
+        current_stage: "APPLICATION_SUBMITTED",
+        created_at: rec.ts || new Date().toISOString(),
+        due_at: null,
+      };
       rec.history = Array.isArray(rec.history) ? rec.history : [];
 
       const prev = rec.job.current_stage;
@@ -70,7 +98,11 @@ export async function handler(event) {
     rec = await store.get(key, { type: "json" });
     if (!rec) return json(404, { error: "Record not found" });
 
-    rec.job = rec.job || { current_stage: "APPLICATION_SUBMITTED", created_at: rec.ts || new Date().toISOString(), due_at: null };
+    rec.job = rec.job || {
+      current_stage: "APPLICATION_SUBMITTED",
+      created_at: rec.ts || new Date().toISOString(),
+      due_at: null,
+    };
     rec.history = Array.isArray(rec.history) ? rec.history : [];
 
     const prev = rec.job.current_stage;

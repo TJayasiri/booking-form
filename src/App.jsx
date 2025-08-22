@@ -17,6 +17,7 @@ const STAGES = [
 
 /** ---------- Status Ribbon (React) ---------- */
 function StatusRibbon({ refId }) {
+  
   const [job, setJob] = useState(null);        // { current_stage, due_at, ... }
   const [history, setHistory] = useState([]);  // [{ stage, at }, ...]
   const [now, setNow] = useState(Date.now());
@@ -370,7 +371,9 @@ export default function BookingFormApp() {
               Print
             </button>
           </div>
+          
         </div>
+
       </header>
 
       {/* Stepper */}

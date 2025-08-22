@@ -25,6 +25,7 @@
     th,td{border:1px solid #ddd;padding:6px 8px;font-size:13px;vertical-align:top}
     th{background:#f7f7f7;text-align:left}
   </style>
+  
 </head>
 <body>
   <header>
@@ -135,11 +136,12 @@
       if(!ref){ alert('Enter a reference'); return; }
       if(!key){ alert('Admin key missing'); return; }
 
-      const res = await fetch('/api/job/update', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json','X-Admin-Key':key},
-        body: JSON.stringify({ ref, stage, dueAt })
-      });
+const res = await fetch('/.netlify/functions/job-update', {
+  method: 'POST',
+  headers: {'Content-Type':'application/json','X-Admin-Key':key},
+  body: JSON.stringify({ ref, stage, dueAt })
+});
+      
       const txt = await res.text().catch(()=> '');
       $('stageMsg').textContent = res.ok ? 'Stage updated ✓' : `Error: ${txt}`;
       $('stageMsg').className = res.ok ? 'ok' : 'bad';

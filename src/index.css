@@ -15,6 +15,32 @@ html, body, #root {
   box-shadow: 0 0 0 2px rgba(220, 38, 38, .2);
 }
 
+<style>
+  @media (max-width: 640px) {
+    header .wrap {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 10px;
+    }
+    h1 {
+      font-size: 16px;
+    }
+    input, select, button {
+      font-size: 13px;
+      padding: 6px 8px;
+    }
+    .row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    table {
+      font-size: 12px;
+    }
+  }
+</style>
+
 /* Print-friendly adjustments */
 @media print {
   /* Force colors in print */

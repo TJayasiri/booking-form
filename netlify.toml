@@ -26,3 +26,8 @@
   from = "/*"
   to   = "/index.html"
   status = 200
+  
+[[redirects]]
+  from = "/api/job/update"
+  to   = "/.netlify/functions/job-update"
+  status = 200
