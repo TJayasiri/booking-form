@@ -10,7 +10,7 @@
     "start": "netlify dev"
   },
   "dependencies": {
-    "@netlify/blobs": "^6.4.0",
+    "@netlify/blobs": "^8.0.0",
     "@supabase/supabase-js": "^2.55.0",
     "qrcode": "^1.5.4",
     "qrcode.react": "^3.2.0",
@@ -28,9 +28,4 @@
     "tailwindcss": "^3.4.10",
     "vite": "^5.4.0"
   }
-}
-
-"dependencies": {
-  "qrcode": "^1.5.3",
-  "@netlify/blobs": "^8.0.0"
 }
