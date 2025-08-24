@@ -2,9 +2,7 @@
 // Admin-only lock/unlock endpoint
 
 import { getStore } from "@netlify/blobs";
-import { guard } from "./_guard.js";
 
-/* ---------- helpers ---------- */
 function makeStore() {
   if (process.env.NETLIFY_DEV === "true") return getStore({ name: "bookings" });
   return getStore({
@@ -14,26 +12,23 @@ function makeStore() {
   });
 }
 
-const baseHeaders = {
-  "Content-Type": "application/json; charset=utf-8",
-  "Cache-Control": "no-store",
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type, X-Admin-Key",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+function json(status, body, extraHeaders = {}) {
+  return {
+    statusCode: status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      ...extraHeaders,
+    },
+    body: JSON.stringify(body),
+  };
+}
 
-const json = (status, body, extraHeaders = {}) => ({
-  statusCode: status,
-  headers: { ...baseHeaders, ...extraHeaders },
-  body: JSON.stringify(body),
-});
-
-// lower-case header lookup (Netlify lowercases keys)
-const getHeader = (event, name) => (event.headers?.[name.toLowerCase()] ?? "");
-
-// Require admin header: X-Admin-Key must match ADMIN_KEY
+// Require admin header: X-Admin-Key must match ADMIN_KEY (set in Netlify env)
 function assertAdmin(event) {
-  const supplied = getHeader(event, "x-admin-key");
+  const h = event.headers || {};
+  // Netlify lower-cases header names
+  const supplied = h["x-admin-key"] || h["X-Admin-Key"];
   if (!supplied || supplied !== process.env.ADMIN_KEY) {
     const err = new Error("Unauthorized");
     err.statusCode = 401;
@@ -41,51 +36,25 @@ function assertAdmin(event) {
   }
 }
 
-// Best-effort IP extraction for audit log + rate limit
+// Best-effort IP extraction for audit log
 function getIp(event) {
   const h = event.headers || {};
-  const conn = h["x-nf-client-connection-ip"] || h["client-ip"] || "";
+  const connIp = h["x-nf-client-connection-ip"] || h["client-ip"] || "";
   const xff = (h["x-forwarded-for"] || "").split(",")[0].trim();
-  return conn || xff || "";
+  return connIp || xff || "";
 }
 
-// tolerant body parsing (JSON or urlencoded)
-function parseBody(event) {
-  try {
-    const obj = JSON.parse(event.body || "{}");
-    if (obj && typeof obj === "object") return obj;
-  } catch {}
-  try {
-    const u = new URLSearchParams(event.body || "");
-    const obj = Object.fromEntries(u.entries());
-    if (Object.keys(obj).length) return obj;
-  } catch {}
-  return {};
-}
-
-/* ---------- handler ---------- */
 export async function handler(event) {
-  // CORS preflight
-  if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
-
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" }, { Allow: "POST" });
-  }
-
-  // rate limit per client IP (memory-based within function instance)
-  const ip = getIp(event) || "unknown";
-  if (!guard(ip, 30, 60_000)) {
-    return json(429, { error: "Too many requests" });
   }
 
   try {
     assertAdmin(event);
 
-    const { refId, action } = parseBody(event);
+    const { refId, action } = JSON.parse(event.body || "{}");
     if (!refId || !action) return json(400, { error: "refId and action are required" });
-    if (!["lock", "unlock"].includes(action)) {
-      return json(400, { error: "action must be lock|unlock" });
-    }
+    if (!["lock", "unlock"].includes(action)) return json(400, { error: "action must be lock|unlock" });
 
     const store = makeStore();
     const key = `records/${refId}.json`;
@@ -101,15 +70,19 @@ export async function handler(event) {
       rec.locked = false;
       rec.unlockedAt = now;
     }
-
     rec.version = (rec.version || 0) + 1;
     rec.events = Array.isArray(rec.events) ? rec.events : [];
-    rec.events.push({ type: action, ts: now, actor: "admin", ip });
+    rec.events.push({
+      type: action,
+      ts: now,
+      actor: "admin",
+      ip: getIp(event),
+    });
 
     // Persist record
     await store.set(key, JSON.stringify(rec), { contentType: "application/json" });
 
-    // Keep index.json in sync (best‑effort)
+    // ---- Keep index.json in sync (best-effort) ----
     try {
       const ixKey = "index.json";
       let index = await store.get(ixKey, { type: "json" });
@@ -128,17 +101,20 @@ export async function handler(event) {
       };
 
       const i = index.findIndex((x) => (x.id || x.refId) === refId);
-      if (i >= 0) index[i] = { ...index[i], ...brief };
-      else index.push(brief);
+      if (i >= 0) {
+        index[i] = { ...index[i], ...brief };
+      } else {
+        index.push(brief);
+      }
 
       await store.set(ixKey, JSON.stringify(index), { contentType: "application/json" });
     } catch {
-      // ignore index update issues
+      // ignore index update errors
     }
 
     return json(200, { ok: true, id: refId, locked: !!rec.locked, version: rec.version });
   } catch (e) {
-    const code = e.statusCode === 401 ? 401 : 500;
+    const code = e.statusCode === 401 || /Unauthorized/i.test(e.message) ? 401 : 500;
     if (code === 401) return json(401, { error: "Unauthorized" });
     console.error("booking-admin error:", e);
     return json(500, { error: e?.message || "Admin action failed" });
