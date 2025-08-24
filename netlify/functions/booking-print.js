@@ -1,9 +1,15 @@
 // netlify/functions/booking-print.js
 import { getStore } from "@netlify/blobs";
-import QRCode from "qrcode";
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+
+/* ---------------------- storage helpers ---------------------- */
+const isLocal = process.env.NETLIFY_DEV === "true";
+const LOCAL_DIR = path.join(os.tmpdir(), "greenleaf-bookings");
 
 function makeStore() {
-  if (process.env.NETLIFY_DEV === "true") return getStore({ name: "bookings" });
+  if (isLocal) return getStore({ name: "bookings" });
   return getStore({
     name: "bookings",
     siteID: process.env.NETLIFY_SITE_ID,
@@ -11,32 +17,68 @@ function makeStore() {
   });
 }
 
-const css = /* css */ `
-  @page { size: A4; margin: 16mm 14mm; }
-  html, body { background: #fff; }
-  body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif; color:#111; }
-  .hd { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-  .muted { color:#666; }
-  h1 { font-size:16px; line-height:1.2; margin:0; }
-  h2 { font-size:14px; margin:18px 0 8px; border-bottom:1px solid #ddd; padding-bottom:4px; }
-  table { width:100%; border-collapse:collapse; }
-  th, td { border:1px solid #ddd; padding:5px 7px; font-size:11.5px; vertical-align:top; }
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .box { border:1px solid #ddd; border-radius:8px; padding:8px; }
-  .qr { border:1px solid #ddd; border-radius:8px; padding:4px; display:inline-block; background:#fff; }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .sig { height:40px; object-fit:contain; }
-  .small { font-size:11px; line-height:1.35; color:#555; }
+/* ---------------------- tiny utils ---------------------- */
+const esc = (s = "") =>
+  String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+
+const ymd = (s = "") => {
+  if (!s) return "";
+  try {
+    const d = new Date(s);
+    if (isNaN(+d)) return s;
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return s;
+  }
+};
+
+function pngDataUrlFromText(text) {
+  // quick QR placeholder if your app didn’t send one; replace with real QR if you prefer
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='110' height='110'>
+    <rect width='100%' height='100%' fill='#f4f4f5'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-family='monospace' font-size='10'>${esc(
+      text
+    )}</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/* ---------------------- CSS ---------------------- */
+const css = `
+  *{box-sizing:border-box}
+  body{font:13px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;padding:16px;color:#0b0b0c;background:#fff}
+  h1,h2{margin:.4em 0 .3em}
+  h1{font-size:18px} h2{font-size:15px}
+  .small{font-size:12px;color:#4b5563}
+  .muted{color:#6b7280}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .hd{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #62BBC1;padding-bottom:8px;margin-bottom:10px}
+  .qr img{display:block;border:1px solid #e5e7eb;border-radius:10px;padding:4px;background:#fff}
+  .box{border:1px solid #e5e7eb;border-radius:10px;padding:10px;background:#fff}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}
+  th,td{border:1px solid #e5e7eb;padding:6px 8px;vertical-align:top}
+  th{background:#f9fafb;text-align:left}
+  .sig{height:42px;object-fit:contain}
+  @media print {
+    body{padding:0;margin:10mm}
+    .hd{page-break-inside:avoid}
+  }
 `;
 
-const esc = (s = "") =>
-  String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+/* ---------------------- HTML builder ---------------------- */
+function renderHTML(record) {
+  const {
+    refId = "",
+    ts = "",
+    locked = false,
+    form = {},
+    terms = {},
+    qrDataUrl,
+  } = record || {};
 
-const ymd = (d) => (d ? d : "");
-
-function renderHTML(rec, qrDataUrl) {
-  const { refId, form = {}, ts, locked } = rec;
-  const { terms = {} } = rec; // Added for terms and conditions
   const {
     meta = {},
     requester = {},
@@ -48,10 +90,22 @@ function renderHTML(rec, qrDataUrl) {
     ack = {},
   } = form;
 
-  const cats = ["production", "permanent", "temporary", "migrant", "contractors", "homeworkers", "management"];
-  const sum = (k) => cats.reduce((a, c) => a + Number(staffCounts?.[c]?.[k] || 0), 0);
-  const totalMale = sum("male"),
-    totalFemale = sum("female");
+  const cats = [
+    "production",
+    "permanent",
+    "temporary",
+    "migrant",
+    "contractors",
+    "homeworkers",
+    "management",
+  ];
+
+  const totalMale = cats.reduce((n, k) => n + Number(staffCounts?.[k]?.male || 0), 0);
+  const totalFemale = cats.reduce((n, k) => n + Number(staffCounts?.[k]?.female || 0), 0);
+
+  const qrUrl =
+    qrDataUrl ||
+    pngDataUrlFromText(`https://booking.greenleafassurance.com/?ref=${refId}`);
 
   return `<!doctype html>
 <html><head>
@@ -60,68 +114,72 @@ function renderHTML(rec, qrDataUrl) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>${css}</style>
 </head>
-<body onload="setTimeout(()=>window.print(), 50)">
+<body onload="setTimeout(()=>window.print(), 60)">
   <div class="hd">
     <div>
       <h1>Greenleaf — Service Booking</h1>
-      <div class="muted small">EFNET-QMS 005 · v3.0 · Generated ${esc(new Date().toLocaleString())}</div>
+      <div class="muted small">EFNET-QMS 005 · v3.0 · Generated ${esc(
+        new Date().toLocaleString()
+      )}</div>
     </div>
-    <div class="qr"><img src="${qrDataUrl}" alt="QR" width="110" height="110"></div>
+    <div class="qr"><img src="${qrUrl}" alt="QR" width="110" height="110"></div>
   </div>
 
   <div class="box" style="margin-bottom:10px;">
-    <div><b>Reference:</b> <span class="mono">${esc(refId)}</span> &nbsp; <b>Created:</b> ${esc(ts || "")} &nbsp; <b>Locked:</b> ${
-    locked ? "YES" : "NO"
-  }</div>
+    <div><b>Reference:</b> <span class="mono">${esc(refId)}</span> &nbsp; <b>Created:</b> ${esc(
+    ts || ""
+  )} &nbsp; <b>Locked:</b> ${locked ? "YES" : "NO"}</div>
   </div>
 
   <h2>1 — Audit Information & Platform Data</h2>
   <table>
-    <tr><th style="width:28%">Service Type</th><td>${esc(meta.auditType)}${
-    meta.auditType === "Other" ? ` — ${esc(meta.auditTypeOther)}` : ""
+    <tr><th style="width:28%">Service Type</th><td>${esc(meta.auditType || "")}${
+    meta.auditType === "Other" ? ` — ${esc(meta.auditTypeOther || "")}` : ""
   }</td></tr>
-    <tr><th>Fulfillment</th><td>${esc(meta.fulfillment)}${
-    meta.fulfillment === "Fixed" ? ` — ${esc(meta.auditDate)}` : ` — ${esc(meta.windowStart)} → ${esc(meta.windowEnd)}`
+    <tr><th>Fulfillment</th><td>${esc(meta.fulfillment || "")}${
+    (meta.fulfillment || "Fixed") === "Fixed"
+      ? ` — ${esc(meta.auditDate || "")}`
+      : ` — ${esc(meta.windowStart || "")} → ${esc(meta.windowEnd || "")}`
   }</td></tr>
     <tr><th>Requested Services</th><td>${esc((meta.services || []).join(", "))}</td></tr>
-    <tr><th>Clients expected</th><td>${esc(meta.clientsExpected)}</td></tr>
-    <tr><th>Platform Ref / Site</th><td>${esc(meta.platformRef)}  ·  ${esc(meta.platformSite)}</td></tr>
-    <tr><th>Factory / Requester ID</th><td>${esc(meta.factoryOrRequesterId)}</td></tr>
+    <tr><th>Clients expected</th><td>${esc(meta.clientsExpected || "")}</td></tr>
+    <tr><th>Platform Ref / Site</th><td>${esc(meta.platformRef || "")}  ·  ${esc(meta.platformSite || "")}</td></tr>
+    <tr><th>Factory / Requester ID</th><td>${esc(meta.factoryOrRequesterId || "")}</td></tr>
   </table>
 
   <h2>2 — Parties & Contacts</h2>
   <div class="grid2">
     <div class="box">
       <b>Requester (Lead Account)</b><br>
-      <div class="small">${esc(requester.company)}</div>
-      <div class="small">${esc(requester.address)}</div>
-      <div class="small"><b>${esc(requester.contact)}</b> · ${esc(requester.title)}</div>
-      <div class="small">${esc(requester.phone)} · ${esc(requester.email)}</div>
+      <div class="small">${esc(requester.company || "")}</div>
+      <div class="small">${esc(requester.address || "")}</div>
+      <div class="small"><b>${esc(requester.contact || "")}</b> · ${esc(requester.title || "")}</div>
+      <div class="small">${esc(requester.phone || "")} · ${esc(requester.email || "")}</div>
       ${requester.gps ? `<div class="small">GPS: ${esc(requester.gps)}</div>` : ""}
     </div>
     <div class="box">
       <b>Supplier / Factory</b><br>
-      <div class="small">${esc(supplier.company)}</div>
-      <div class="small">${esc(supplier.address)}</div>
-      <div class="small"><b>${esc(supplier.contact)}</b> · ${esc(supplier.title)}</div>
-      <div class="small">${esc(supplier.phone)} · ${esc(supplier.email)}</div>
+      <div class="small">${esc(supplier.company || "")}</div>
+      <div class="small">${esc(supplier.address || "")}</div>
+      <div class="small"><b>${esc(supplier.contact || "")}</b> · ${esc(supplier.title || "")}</div>
+      <div class="small">${esc(supplier.phone || "")} · ${esc(supplier.email || "")}</div>
       ${supplier.gps ? `<div class="small">GPS: ${esc(supplier.gps)}</div>` : ""}
     </div>
   </div>
   <div class="grid2" style="margin-top:10px;">
     <div class="box">
       <b>Vendor / Trading</b><br>
-      <div class="small">${esc(vendor.company)}</div>
-      <div class="small">${esc(vendor.address)}</div>
-      <div class="small"><b>${esc(vendor.contact)}</b> · ${esc(vendor.title)}</div>
-      <div class="small">${esc(vendor.phone)} · ${esc(vendor.email)}</div>
+      <div class="small">${esc(vendor.company || "")}</div>
+      <div class="small">${esc(vendor.address || "")}</div>
+      <div class="small"><b>${esc(vendor.contact || "")}</b> · ${esc(vendor.title || "")}</div>
+      <div class="small">${esc(vendor.phone || "")} · ${esc(vendor.email || "")}</div>
     </div>
     <div class="box">
       <b>Buyer / Billing</b><br>
-      <div class="small">${esc(buyer.company)}</div>
-      <div class="small">${esc(buyer.address)}</div>
-      <div class="small"><b>${esc(buyer.contact)}</b> · ${esc(buyer.title)}</div>
-      <div class="small">${esc(buyer.phone)} · ${esc(buyer.email)}</div>
+      <div class="small">${esc(buyer.company || "")}</div>
+      <div class="small">${esc(buyer.address || "")}</div>
+      <div class="small"><b>${esc(buyer.contact || "")}</b> · ${esc(buyer.title || "")}</div>
+      <div class="small">${esc(buyer.phone || "")} · ${esc(buyer.email || "")}</div>
     </div>
   </div>
 
@@ -170,60 +228,58 @@ function renderHTML(rec, qrDataUrl) {
     </tr>
   </table>
 
+  <!-- Terms BEFORE copyright -->
+  <p class="small" style="margin-top:6px;">
+    Terms accepted: <b>${terms?.accepted ? "YES" : "NO"}</b>
+    ${terms?.version ? ` · Version: ${esc(terms.version)}` : ""}
+    ${terms?.url ? ` · ${esc(terms.url)}` : ""}
+  </p>
+
   <p class="small" style="margin-top:12px;">
     © ${new Date().getFullYear()} Greenleaf Assurance · Reference <span class="mono">${esc(refId)}</span>
   </p>
-  <p class="small" style="margin-top:6px;">
-  Terms accepted: <b>${terms.accepted ? "YES" : "NO"}</b>
-  ${terms.version ? ` · Version: ${esc(terms.version)}` : ""}
-  ${terms.url ? ` · ${esc(terms.url)}` : ""}
-</p>
 </body></html>`;
 }
 
-function resHTML(html) {
-  return {
-    statusCode: 200,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
-    body: html,
-  };
-}
-
-function resJSON(code, body) {
-  return {
-    statusCode: code,
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-    body: JSON.stringify(body),
-  };
-}
-
+/* ---------------------- handler ---------------------- */
 export async function handler(event) {
   try {
-    const refId = (event.queryStringParameters?.ref || "").trim();
-    if (!refId) return resJSON(400, { error: "Missing ref" });
+    if (event.httpMethod !== "GET") {
+      return { statusCode: 405, body: "Method not allowed" };
+    }
 
-    const store = makeStore();
-    const key = `records/${refId}.json`;
-    const rec = await store.get(key, { type: "json" });
-    if (!rec) return resJSON(404, { error: "Not found" });
+    const ref = (event.queryStringParameters?.ref || "").trim();
+    if (!ref) {
+      return { statusCode: 400, body: "Missing ref" };
+    }
 
-    // Generate a crisp inline QR for the top-right badge
-    const qrValue = `https://booking.greenleafassurance.com/?ref=${encodeURIComponent(refId)}`;
-    const qrDataUrl = await QRCode.toDataURL(qrValue, { margin: 1, scale: 4 });
+    let rec = null;
 
-    // Log a print event (best-effort)
-    try {
-      rec.events = Array.isArray(rec.events) ? rec.events : [];
-      rec.events.push({ type: "print", ts: new Date().toISOString(), actor: "user" });
-      rec.version = (rec.version || 0) + 1;
-      await store.set(key, JSON.stringify(rec), { contentType: "application/json" });
-    } catch { /* ignore */ }
+    if (isLocal) {
+      const p = path.join(LOCAL_DIR, `${ref}.json`);
+      try {
+        const raw = await fs.readFile(p, "utf8");
+        rec = JSON.parse(raw);
+      } catch {
+        return { statusCode: 404, body: "Record not found" };
+      }
+    } else {
+      const store = makeStore();
+      rec = await store.get(`records/${ref}.json`, { type: "json" });
+      if (!rec) return { statusCode: 404, body: "Record not found" };
+    }
 
-    return resHTML(renderHTML(rec, qrDataUrl));
+    const html = renderHTML(rec);
+    return {
+      statusCode: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+      body: html,
+    };
   } catch (e) {
-    return resJSON(500, { error: e.message || "Failed to render print" });
+    console.error("booking-print error:", e);
+    return { statusCode: 500, body: "Failed to render" };
   }
 }
