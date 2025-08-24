@@ -2,6 +2,14 @@
 // Admin-only lock/unlock endpoint
 
 import { getStore } from "@netlify/blobs";
+import { guard } from "./_guard.js";
+
+
+const ip = event.headers?.["x-nf-client-connection-ip"] ||
+           event.headers?.["x-forwarded-for"]?.split(",")[0].trim() ||
+           event.headers?.["client-ip"] ||
+           event.ip || "unknown";
+if (!guard(ip, 30, 60_000)) return json(429, { error: "Too many requests" });
 
 function makeStore() {
   if (process.env.NETLIFY_DEV === "true") return getStore({ name: "bookings" });

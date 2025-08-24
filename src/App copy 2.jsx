@@ -94,43 +94,7 @@ function StatusRibbon({ refId }) {
         </div>
         <div className="font-bold [font-variant-numeric:tabular-nums]">{content.countdown}</div>
       </div>
-      [build]
-  command = "npm run build"
-  publish = "dist"
-
-[dev]
-  # Run Vite via your package script and proxy it
-  command    = "npm run dev"
-  targetPort = 5173
-  port       = 8888
-  publish    = "dist"
-
-[functions]
-  directory    = "netlify/functions"
-  node_bundler = "esbuild"
-  # keep blobs external so build doesn’t fail
-  external_node_modules = ["@netlify/blobs"]
-
-# Optional: nice clean path for functions while developing/production
-[[redirects]]
-  from = "/api/*"
-  to   = "/.netlify/functions/:splat"
-  status = 200
-
-# SPA fallback (must be last)
-[[redirects]]
-  from = "/*"
-  to   = "/index.html"
-  status = 200
-  
-[[redirects]]
-  from = "/api/job/update"
-  to   = "/.netlify/functions/job-update"
-  status = 200
     </div>
-    
-
-
   );
 }
 

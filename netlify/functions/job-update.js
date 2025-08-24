@@ -1,13 +1,15 @@
-// netlify/functions/job-update.js
 import { getStore } from "@netlify/blobs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { guard } from "./_guard.js"; // ← Rate‑limit guard (server side)
 
 const isLocal = process.env.NETLIFY_DEV === "true";
 const LOCAL_DIR = path.join(os.tmpdir(), "greenleaf-bookings");
 
 function makeStore() {
+  // In local dev, Blobs works without siteID/token too,
+  // but we keep a filesystem path for easy inspection.
   if (isLocal) return getStore({ name: "bookings" });
   return getStore({
     name: "bookings",
@@ -19,13 +21,16 @@ function makeStore() {
 const baseHeaders = {
   "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "no-store",
-  // light CORS so you can hit this from anywhere during admin/testing
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, X-Admin-Key",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const json = (status, body) => ({ statusCode: status, headers: baseHeaders, body: JSON.stringify(body) });
+const json = (status, body) => ({
+  statusCode: status,
+  headers: baseHeaders,
+  body: JSON.stringify(body),
+});
 
 function isAdmin(event) {
   const h = event.headers || {};
@@ -33,13 +38,12 @@ function isAdmin(event) {
   return key && process.env.ADMIN_KEY && key === process.env.ADMIN_KEY;
 }
 
+// Accept JSON or urlencoded
 function parseBody(event) {
-  // Try JSON first
   try {
     const b = JSON.parse(event.body || "{}");
     if (b && typeof b === "object") return b;
   } catch {}
-  // Try URL-encoded (Netlify sometimes sends this if headers mismatch)
   try {
     const u = new URLSearchParams(event.body || "");
     const obj = Object.fromEntries(u.entries());
@@ -48,25 +52,64 @@ function parseBody(event) {
   return {};
 }
 
+const STAGE_WHITELIST = new Set([
+  "APPLICATION_SUBMITTED",
+  "ACCEPTED_INITIATED",
+  "ESTIMATE_INVOICE_ISSUED",
+  "AGREEMENT_GENERATED",
+  "SCHEDULE_RELEASED",
+  "REPORT_ACTION_TAKEN",
+  "FOLLOW_UP",
+  "COMPLETED",
+]);
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
-
   if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
   if (!isAdmin(event)) return json(401, { error: "Unauthorized" });
 
-  // Accept body OR querystring
+  // ---- Rate‑limit guard (server side)
+  const ip =
+    event.headers?.["x-nf-client-connection-ip"] ||
+    event.headers?.["x-forwarded-for"]?.split(",")[0].trim() ||
+    event.headers?.["client-ip"] ||
+    event.ip ||
+    "unknown";
+  if (!guard(ip, 30, 60_000)) { // 30 writes/min/IP for admin endpoint
+    return json(429, { error: "Too many requests" });
+  }
+
+  // Body + QS
   const body = parseBody(event);
   const qs = new URLSearchParams(event.queryStringParameters || {});
   const ref = (body.ref || body.refId || qs.get("ref") || qs.get("refId") || "").trim();
-  const stage = (body.stage || qs.get("stage") || "").trim();
-  const dueAt = (body.dueAt ?? qs.get("dueAt")) ?? null;
+  const stageRaw = (body.stage || qs.get("stage") || "").trim();
+  // Normalize dueAt: allow "", null, ISO, or datetime-local "YYYY-MM-DDTHH:mm"
+  let dueAt = body.dueAt ?? qs.get("dueAt");
+  if (!dueAt || String(dueAt).trim() === "") {
+    dueAt = null;
+  } else {
+    // If not a full ISO, try to convert the common "YYYY-MM-DDTHH:mm"
+    const d = new Date(dueAt);
+    if (!Number.isNaN(d.getTime())) {
+      dueAt = d.toISOString();
+    } else {
+      // Leave as-is; API will store the provided value
+    }
+  }
 
   if (!ref)   return json(400, { error: "Missing ref" });
-  if (!stage) return json(400, { error: "Missing stage" });
+  if (!stageRaw) return json(400, { error: "Missing stage" });
+
+  const stage = stageRaw.toUpperCase();
+  if (!STAGE_WHITELIST.has(stage)) {
+    return json(400, { error: "Invalid stage value" });
+  }
 
   try {
     // --- load current record
     let rec;
+
     if (isLocal) {
       const p = path.join(LOCAL_DIR, `${ref}.json`);
       try {
@@ -93,9 +136,11 @@ export async function handler(event) {
       return json(200, { ok: true, job: rec.job, history: rec.history });
     }
 
+    // --- Netlify Blobs
     const store = makeStore();
     const key = `records/${ref}.json`;
     rec = await store.get(key, { type: "json" });
+
     if (!rec) return json(404, { error: "Record not found" });
 
     rec.job = rec.job || {

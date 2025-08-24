@@ -3,7 +3,6 @@ import { getStore } from "@netlify/blobs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import QRCode from "qrcode";
 
 /* ---------------------- storage helpers ---------------------- */
 const isLocal = process.env.NETLIFY_DEV === "true";
@@ -64,42 +63,22 @@ const css = `
   th{background:#f9fafb;text-align:left}
   .sig{height:42px;object-fit:contain}
   @media print {
-    @page { size: A4; margin: 16mm 14mm; }
     body{padding:0;margin:10mm}
     .hd{page-break-inside:avoid}
-  }`;
-  
+  }
+`;
 
-const esc = (s = "") =>
-  String(s).replace(/[&<>"']/g, (m) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  }[m]));
-
-const ymd = (d) => (d ? d : "");
-
-
-// NOTE: keep `qrDataUrl` param – this is what shows the QR
-function renderHTML(rec, qrDataUrl) {
-  const { refId, form = {}, ts, locked, terms = {} } = rec;
-  const {
-    meta = {},
-    requester = {},
-    supplier = {},
-    vendor = {},
-    buyer = {},
-    staffCounts = {},
-    special = {},
-    ack = {},
-  } = form;
-  
-  
 /* ---------------------- HTML builder ---------------------- */
-function renderHTML(rec, qrDataUrl) {
-  const { refId, form = {}, ts, locked, terms = {} } = rec;
+function renderHTML(record) {
+  const {
+    refId = "",
+    ts = "",
+    locked = false,
+    form = {},
+    terms = {},
+    qrDataUrl,
+  } = record || {};
+
   const {
     meta = {},
     requester = {},
@@ -111,14 +90,22 @@ function renderHTML(rec, qrDataUrl) {
     ack = {},
   } = form;
 
-  // categories + totals
-  const cats = ["production","permanent","temporary","migrant","contractors","homeworkers","management"];
-  const sum = (k) => cats.reduce((a,c)=>a+Number(staffCounts?.[c]?.[k]||0),0);
-  const totalMale = sum("male");
-  const totalFemale = sum("female");
+  const cats = [
+    "production",
+    "permanent",
+    "temporary",
+    "migrant",
+    "contractors",
+    "homeworkers",
+    "management",
+  ];
 
-  //  Use qrDataUrl passed in
-  const qrUrl = qrDataUrl || pngDataUrlFromText(`https://booking.greenleafassurance.com/?ref=${refId}`);
+  const totalMale = cats.reduce((n, k) => n + Number(staffCounts?.[k]?.male || 0), 0);
+  const totalFemale = cats.reduce((n, k) => n + Number(staffCounts?.[k]?.female || 0), 0);
+
+  const qrUrl =
+    qrDataUrl ||
+    pngDataUrlFromText(`https://booking.greenleafassurance.com/?ref=${refId}`);
 
   return `<!doctype html>
 <html><head>
@@ -127,84 +114,105 @@ function renderHTML(rec, qrDataUrl) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>${css}</style>
 </head>
-<body onload="setTimeout(()=>window.print(), 50)">
+<body onload="setTimeout(()=>window.print(), 60)">
   <div class="hd">
     <div>
       <h1>Greenleaf — Service Booking</h1>
-      <div class="muted small">EFNET-QMS 005 · v3.0 · Generated ${esc(new Date().toLocaleString())}</div>
+      <div class="muted small">EFNET-QMS 005 · v3.0 · Generated ${esc(
+        new Date().toLocaleString()
+      )}</div>
     </div>
-    <div class="qr"><img src="${qrDataUrl}" alt="QR" width="110" height="110"></div>
+    <div class="qr"><img src="${qrUrl}" alt="QR" width="110" height="110"></div>
   </div>
 
   <div class="box" style="margin-bottom:10px;">
-    <div><b>Reference:</b> <span class="mono">${esc(refId)}</span> &nbsp; <b>Created:</b> ${esc(ts || "")} &nbsp; <b>Locked:</b> ${locked ? "YES" : "NO"}</div>
+    <div><b>Reference:</b> <span class="mono">${esc(refId)}</span> &nbsp; <b>Created:</b> ${esc(
+    ts || ""
+  )} &nbsp; <b>Locked:</b> ${locked ? "YES" : "NO"}</div>
   </div>
 
   <h2>1 — Audit Information & Platform Data</h2>
   <table>
-    <tr><th style="width:28%">Service Type</th><td>${esc(meta.auditType)}${meta.auditType === "Other" ? ` — ${esc(meta.auditTypeOther)}` : ""}</td></tr>
-    <tr><th>Fulfillment</th><td>${esc(meta.fulfillment)}${meta.fulfillment === "Fixed" ? ` — ${esc(meta.auditDate)}` : ` — ${esc(meta.windowStart)} → ${esc(meta.windowEnd)}`}</td></tr>
+    <tr><th style="width:28%">Service Type</th><td>${esc(meta.auditType || "")}${
+    meta.auditType === "Other" ? ` — ${esc(meta.auditTypeOther || "")}` : ""
+  }</td></tr>
+    <tr><th>Fulfillment</th><td>${esc(meta.fulfillment || "")}${
+    (meta.fulfillment || "Fixed") === "Fixed"
+      ? ` — ${esc(meta.auditDate || "")}`
+      : ` — ${esc(meta.windowStart || "")} → ${esc(meta.windowEnd || "")}`
+  }</td></tr>
     <tr><th>Requested Services</th><td>${esc((meta.services || []).join(", "))}</td></tr>
-    <tr><th>Clients expected</th><td>${esc(meta.clientsExpected)}</td></tr>
-    <tr><th>Platform Ref / Site</th><td>${esc(meta.platformRef)}  ·  ${esc(meta.platformSite)}</td></tr>
-    <tr><th>Factory / Requester ID</th><td>${esc(meta.factoryOrRequesterId)}</td></tr>
+    <tr><th>Clients expected</th><td>${esc(meta.clientsExpected || "")}</td></tr>
+    <tr><th>Platform Ref / Site</th><td>${esc(meta.platformRef || "")}  ·  ${esc(meta.platformSite || "")}</td></tr>
+    <tr><th>Factory / Requester ID</th><td>${esc(meta.factoryOrRequesterId || "")}</td></tr>
   </table>
 
   <h2>2 — Parties & Contacts</h2>
   <div class="grid2">
     <div class="box">
       <b>Requester (Lead Account)</b><br>
-      <div class="small">${esc(requester.company)}</div>
-      <div class="small">${esc(requester.address)}</div>
-      <div class="small"><b>${esc(requester.contact)}</b> · ${esc(requester.title)}</div>
-      <div class="small">${esc(requester.phone)} · ${esc(requester.email)}</div>
+      <div class="small">${esc(requester.company || "")}</div>
+      <div class="small">${esc(requester.address || "")}</div>
+      <div class="small"><b>${esc(requester.contact || "")}</b> · ${esc(requester.title || "")}</div>
+      <div class="small">${esc(requester.phone || "")} · ${esc(requester.email || "")}</div>
       ${requester.gps ? `<div class="small">GPS: ${esc(requester.gps)}</div>` : ""}
     </div>
     <div class="box">
       <b>Supplier / Factory</b><br>
-      <div class="small">${esc(supplier.company)}</div>
-      <div class="small">${esc(supplier.address)}</div>
-      <div class="small"><b>${esc(supplier.contact)}</b> · ${esc(supplier.title)}</div>
-      <div class="small">${esc(supplier.phone)} · ${esc(supplier.email)}</div>
+      <div class="small">${esc(supplier.company || "")}</div>
+      <div class="small">${esc(supplier.address || "")}</div>
+      <div class="small"><b>${esc(supplier.contact || "")}</b> · ${esc(supplier.title || "")}</div>
+      <div class="small">${esc(supplier.phone || "")} · ${esc(supplier.email || "")}</div>
       ${supplier.gps ? `<div class="small">GPS: ${esc(supplier.gps)}</div>` : ""}
     </div>
   </div>
   <div class="grid2" style="margin-top:10px;">
     <div class="box">
       <b>Vendor / Trading</b><br>
-      <div class="small">${esc(vendor.company)}</div>
-      <div class="small">${esc(vendor.address)}</div>
-      <div class="small"><b>${esc(vendor.contact)}</b> · ${esc(vendor.title)}</div>
-      <div class="small">${esc(vendor.phone)} · ${esc(vendor.email)}</div>
+      <div class="small">${esc(vendor.company || "")}</div>
+      <div class="small">${esc(vendor.address || "")}</div>
+      <div class="small"><b>${esc(vendor.contact || "")}</b> · ${esc(vendor.title || "")}</div>
+      <div class="small">${esc(vendor.phone || "")} · ${esc(vendor.email || "")}</div>
     </div>
     <div class="box">
       <b>Buyer / Billing</b><br>
-      <div class="small">${esc(buyer.company)}</div>
-      <div class="small">${esc(buyer.address)}</div>
-      <div class="small"><b>${esc(buyer.contact)}</b> · ${esc(buyer.title)}</div>
-      <div class="small">${esc(buyer.phone)} · ${esc(buyer.email)}</div>
+      <div class="small">${esc(buyer.company || "")}</div>
+      <div class="small">${esc(buyer.address || "")}</div>
+      <div class="small"><b>${esc(buyer.contact || "")}</b> · ${esc(buyer.title || "")}</div>
+      <div class="small">${esc(buyer.phone || "")} · ${esc(buyer.email || "")}</div>
     </div>
   </div>
 
   <h2>3 — Manday & Special Conditions</h2>
   <table>
     <tr><th>Category</th><th>Male</th><th>Female</th></tr>
-    ${cats.map(c => `
+    ${cats
+      .map(
+        (c) => `
       <tr><td>${esc(c)}</td>
       <td>${Number(staffCounts?.[c]?.male || 0)}</td>
-      <td>${Number(staffCounts?.[c]?.female || 0)}</td></tr>`).join("")}
+      <td>${Number(staffCounts?.[c]?.female || 0)}</td></tr>`
+      )
+      .join("")}
     <tr><th>Total</th><th>${totalMale}</th><th>${totalFemale}</th></tr>
   </table>
 
-  ${special?.details ? `
-    <div class="box" style="margin-top:8px;">
-      <b>Special Conditions / Notes:</b>
-      <div class="small">${esc(special.details)}</div>
-    </div>` : ""}
+  ${
+    special?.details
+      ? `
+  <div class="box" style="margin-top:8px;">
+    <b>Special Conditions / Notes:</b>
+    <div class="small">${esc(special.details)}</div>
+  </div>`
+      : ""
+  }
 
   <h2>4 — Acknowledgements</h2>
   <table>
-    <tr><th style="width:50%">Requester</th><th style="width:50%">Greenleaf</th></tr>
+    <tr>
+      <th style="width:50%">Requester</th>
+      <th style="width:50%">Greenleaf</th>
+    </tr>
     <tr>
       <td>
         <div class="small"><b>Name:</b> ${esc(ack.requesterName || "")}</div>
@@ -222,9 +230,9 @@ function renderHTML(rec, qrDataUrl) {
 
   <!-- Terms BEFORE copyright -->
   <p class="small" style="margin-top:6px;">
-    Terms accepted: <b>${terms.accepted ? "YES" : "NO"}</b>
-    ${terms.version ? ` · Version: ${esc(terms.version)}` : ""}
-    ${terms.url ? ` · ${esc(terms.url)}` : ""}
+    Terms accepted: <b>${terms?.accepted ? "YES" : "NO"}</b>
+    ${terms?.version ? ` · Version: ${esc(terms.version)}` : ""}
+    ${terms?.url ? ` · ${esc(terms.url)}` : ""}
   </p>
 
   <p class="small" style="margin-top:12px;">
@@ -236,28 +244,42 @@ function renderHTML(rec, qrDataUrl) {
 /* ---------------------- handler ---------------------- */
 export async function handler(event) {
   try {
-    const refId = (event.queryStringParameters?.ref || "").trim();
-    if (!refId) return resJSON(400, { error: "Missing ref" });
+    if (event.httpMethod !== "GET") {
+      return { statusCode: 405, body: "Method not allowed" };
+    }
 
-    const store = makeStore();
-    const key = `records/${refId}.json`;
-    const rec = await store.get(key, { type: "json" });
-    if (!rec) return resJSON(404, { error: "Not found" });
+    const ref = (event.queryStringParameters?.ref || "").trim();
+    if (!ref) {
+      return { statusCode: 400, body: "Missing ref" };
+    }
 
-    // ✅ Generate inline QR and PASS it into the renderer
-    const qrValue = `https://booking.greenleafassurance.com/?ref=${encodeURIComponent(refId)}`;
-    const qrDataUrl = await QRCode.toDataURL(qrValue, { margin: 1, scale: 4 });
+    let rec = null;
 
-    // Best‑effort event log
-    try {
-      rec.events = Array.isArray(rec.events) ? rec.events : [];
-      rec.events.push({ type: "print", ts: new Date().toISOString(), actor: "user" });
-      rec.version = (rec.version || 0) + 1;
-      await store.set(key, JSON.stringify(rec), { contentType: "application/json" });
-    } catch {}
+    if (isLocal) {
+      const p = path.join(LOCAL_DIR, `${ref}.json`);
+      try {
+        const raw = await fs.readFile(p, "utf8");
+        rec = JSON.parse(raw);
+      } catch {
+        return { statusCode: 404, body: "Record not found" };
+      }
+    } else {
+      const store = makeStore();
+      rec = await store.get(`records/${ref}.json`, { type: "json" });
+      if (!rec) return { statusCode: 404, body: "Record not found" };
+    }
 
-    return resHTML(renderHTML(rec, qrDataUrl));
+    const html = renderHTML(rec);
+    return {
+      statusCode: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+      body: html,
+    };
   } catch (e) {
-    return resJSON(500, { error: e.message || "Failed to render print" });
+    console.error("booking-print error:", e);
+    return { statusCode: 500, body: "Failed to render" };
   }
 }

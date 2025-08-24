@@ -1,16 +1,9 @@
 // netlify/functions/booking-print.js
 import { getStore } from "@netlify/blobs";
-import fs from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
 import QRCode from "qrcode";
 
-/* ---------------------- storage helpers ---------------------- */
-const isLocal = process.env.NETLIFY_DEV === "true";
-const LOCAL_DIR = path.join(os.tmpdir(), "greenleaf-bookings");
-
 function makeStore() {
-  if (isLocal) return getStore({ name: "bookings" });
+  if (process.env.NETLIFY_DEV === "true") return getStore({ name: "bookings" });
   return getStore({
     name: "bookings",
     siteID: process.env.NETLIFY_SITE_ID,
@@ -18,88 +11,32 @@ function makeStore() {
   });
 }
 
-/* ---------------------- tiny utils ---------------------- */
-const esc = (s = "") =>
-  String(s)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-
-const ymd = (s = "") => {
-  if (!s) return "";
-  try {
-    const d = new Date(s);
-    if (isNaN(+d)) return s;
-    return d.toISOString().slice(0, 10);
-  } catch {
-    return s;
-  }
-};
-
-function pngDataUrlFromText(text) {
-  // quick QR placeholder if your app didn’t send one; replace with real QR if you prefer
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='110' height='110'>
-    <rect width='100%' height='100%' fill='#f4f4f5'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-family='monospace' font-size='10'>${esc(
-      text
-    )}</text></svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
-
-/* ---------------------- CSS ---------------------- */
-const css = `
-  *{box-sizing:border-box}
-  body{font:13px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;padding:16px;color:#0b0b0c;background:#fff}
-  h1,h2{margin:.4em 0 .3em}
-  h1{font-size:18px} h2{font-size:15px}
-  .small{font-size:12px;color:#4b5563}
-  .muted{color:#6b7280}
-  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  .hd{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #62BBC1;padding-bottom:8px;margin-bottom:10px}
-  .qr img{display:block;border:1px solid #e5e7eb;border-radius:10px;padding:4px;background:#fff}
-  .box{border:1px solid #e5e7eb;border-radius:10px;padding:10px;background:#fff}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}
-  th,td{border:1px solid #e5e7eb;padding:6px 8px;vertical-align:top}
-  th{background:#f9fafb;text-align:left}
-  .sig{height:42px;object-fit:contain}
-  @media print {
-    @page { size: A4; margin: 16mm 14mm; }
-    body{padding:0;margin:10mm}
-    .hd{page-break-inside:avoid}
-  }`;
-  
+const css = /* css */ `
+  @page { size: A4; margin: 16mm 14mm; }
+  html, body { background: #fff; }
+  body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif; color:#111; }
+  .hd { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .muted { color:#666; }
+  h1 { font-size:16px; line-height:1.2; margin:0; }
+  h2 { font-size:14px; margin:18px 0 8px; border-bottom:1px solid #ddd; padding-bottom:4px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { border:1px solid #ddd; padding:5px 7px; font-size:11.5px; vertical-align:top; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .box { border:1px solid #ddd; border-radius:8px; padding:8px; }
+  .qr { border:1px solid #ddd; border-radius:8px; padding:4px; display:inline-block; background:#fff; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .sig { height:40px; object-fit:contain; }
+  .small { font-size:11px; line-height:1.35; color:#555; }
+`;
 
 const esc = (s = "") =>
-  String(s).replace(/[&<>"']/g, (m) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  }[m]));
+  String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 
 const ymd = (d) => (d ? d : "");
 
-
-// NOTE: keep `qrDataUrl` param – this is what shows the QR
 function renderHTML(rec, qrDataUrl) {
-  const { refId, form = {}, ts, locked, terms = {} } = rec;
-  const {
-    meta = {},
-    requester = {},
-    supplier = {},
-    vendor = {},
-    buyer = {},
-    staffCounts = {},
-    special = {},
-    ack = {},
-  } = form;
-  
-  
-/* ---------------------- HTML builder ---------------------- */
-function renderHTML(rec, qrDataUrl) {
-  const { refId, form = {}, ts, locked, terms = {} } = rec;
+  const { refId, form = {}, ts, locked } = rec;
+  const { terms = {} } = rec; // Added for terms and conditions
   const {
     meta = {},
     requester = {},
@@ -111,14 +48,10 @@ function renderHTML(rec, qrDataUrl) {
     ack = {},
   } = form;
 
-  // categories + totals
-  const cats = ["production","permanent","temporary","migrant","contractors","homeworkers","management"];
-  const sum = (k) => cats.reduce((a,c)=>a+Number(staffCounts?.[c]?.[k]||0),0);
-  const totalMale = sum("male");
-  const totalFemale = sum("female");
-
-  //  Use qrDataUrl passed in
-  const qrUrl = qrDataUrl || pngDataUrlFromText(`https://booking.greenleafassurance.com/?ref=${refId}`);
+  const cats = ["production", "permanent", "temporary", "migrant", "contractors", "homeworkers", "management"];
+  const sum = (k) => cats.reduce((a, c) => a + Number(staffCounts?.[c]?.[k] || 0), 0);
+  const totalMale = sum("male"),
+    totalFemale = sum("female");
 
   return `<!doctype html>
 <html><head>
@@ -137,13 +70,19 @@ function renderHTML(rec, qrDataUrl) {
   </div>
 
   <div class="box" style="margin-bottom:10px;">
-    <div><b>Reference:</b> <span class="mono">${esc(refId)}</span> &nbsp; <b>Created:</b> ${esc(ts || "")} &nbsp; <b>Locked:</b> ${locked ? "YES" : "NO"}</div>
+    <div><b>Reference:</b> <span class="mono">${esc(refId)}</span> &nbsp; <b>Created:</b> ${esc(ts || "")} &nbsp; <b>Locked:</b> ${
+    locked ? "YES" : "NO"
+  }</div>
   </div>
 
   <h2>1 — Audit Information & Platform Data</h2>
   <table>
-    <tr><th style="width:28%">Service Type</th><td>${esc(meta.auditType)}${meta.auditType === "Other" ? ` — ${esc(meta.auditTypeOther)}` : ""}</td></tr>
-    <tr><th>Fulfillment</th><td>${esc(meta.fulfillment)}${meta.fulfillment === "Fixed" ? ` — ${esc(meta.auditDate)}` : ` — ${esc(meta.windowStart)} → ${esc(meta.windowEnd)}`}</td></tr>
+    <tr><th style="width:28%">Service Type</th><td>${esc(meta.auditType)}${
+    meta.auditType === "Other" ? ` — ${esc(meta.auditTypeOther)}` : ""
+  }</td></tr>
+    <tr><th>Fulfillment</th><td>${esc(meta.fulfillment)}${
+    meta.fulfillment === "Fixed" ? ` — ${esc(meta.auditDate)}` : ` — ${esc(meta.windowStart)} → ${esc(meta.windowEnd)}`
+  }</td></tr>
     <tr><th>Requested Services</th><td>${esc((meta.services || []).join(", "))}</td></tr>
     <tr><th>Clients expected</th><td>${esc(meta.clientsExpected)}</td></tr>
     <tr><th>Platform Ref / Site</th><td>${esc(meta.platformRef)}  ·  ${esc(meta.platformSite)}</td></tr>
@@ -189,22 +128,33 @@ function renderHTML(rec, qrDataUrl) {
   <h2>3 — Manday & Special Conditions</h2>
   <table>
     <tr><th>Category</th><th>Male</th><th>Female</th></tr>
-    ${cats.map(c => `
+    ${cats
+      .map(
+        (c) => `
       <tr><td>${esc(c)}</td>
       <td>${Number(staffCounts?.[c]?.male || 0)}</td>
-      <td>${Number(staffCounts?.[c]?.female || 0)}</td></tr>`).join("")}
+      <td>${Number(staffCounts?.[c]?.female || 0)}</td></tr>`
+      )
+      .join("")}
     <tr><th>Total</th><th>${totalMale}</th><th>${totalFemale}</th></tr>
   </table>
 
-  ${special?.details ? `
-    <div class="box" style="margin-top:8px;">
-      <b>Special Conditions / Notes:</b>
-      <div class="small">${esc(special.details)}</div>
-    </div>` : ""}
+  ${
+    special?.details
+      ? `
+  <div class="box" style="margin-top:8px;">
+    <b>Special Conditions / Notes:</b>
+    <div class="small">${esc(special.details)}</div>
+  </div>`
+      : ""
+  }
 
   <h2>4 — Acknowledgements</h2>
   <table>
-    <tr><th style="width:50%">Requester</th><th style="width:50%">Greenleaf</th></tr>
+    <tr>
+      <th style="width:50%">Requester</th>
+      <th style="width:50%">Greenleaf</th>
+    </tr>
     <tr>
       <td>
         <div class="small"><b>Name:</b> ${esc(ack.requesterName || "")}</div>
@@ -220,20 +170,37 @@ function renderHTML(rec, qrDataUrl) {
     </tr>
   </table>
 
-  <!-- Terms BEFORE copyright -->
-  <p class="small" style="margin-top:6px;">
-    Terms accepted: <b>${terms.accepted ? "YES" : "NO"}</b>
-    ${terms.version ? ` · Version: ${esc(terms.version)}` : ""}
-    ${terms.url ? ` · ${esc(terms.url)}` : ""}
-  </p>
 
+  <p class="small" style="margin-top:6px;">
+  Terms accepted: <b>${terms.accepted ? "YES" : "NO"}</b>
+  ${terms.version ? ` · Version: ${esc(terms.version)}` : ""}
+  ${terms.url ? ` · ${esc(terms.url)}` : ""}
+</p>
   <p class="small" style="margin-top:12px;">
     © ${new Date().getFullYear()} Greenleaf Assurance · Reference <span class="mono">${esc(refId)}</span>
   </p>
 </body></html>`;
 }
 
-/* ---------------------- handler ---------------------- */
+function resHTML(html) {
+  return {
+    statusCode: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+    body: html,
+  };
+}
+
+function resJSON(code, body) {
+  return {
+    statusCode: code,
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+    body: JSON.stringify(body),
+  };
+}
+
 export async function handler(event) {
   try {
     const refId = (event.queryStringParameters?.ref || "").trim();
@@ -244,17 +211,17 @@ export async function handler(event) {
     const rec = await store.get(key, { type: "json" });
     if (!rec) return resJSON(404, { error: "Not found" });
 
-    // ✅ Generate inline QR and PASS it into the renderer
+    // Generate a crisp inline QR for the top-right badge
     const qrValue = `https://booking.greenleafassurance.com/?ref=${encodeURIComponent(refId)}`;
     const qrDataUrl = await QRCode.toDataURL(qrValue, { margin: 1, scale: 4 });
 
-    // Best‑effort event log
+    // Log a print event (best-effort)
     try {
       rec.events = Array.isArray(rec.events) ? rec.events : [];
       rec.events.push({ type: "print", ts: new Date().toISOString(), actor: "user" });
       rec.version = (rec.version || 0) + 1;
       await store.set(key, JSON.stringify(rec), { contentType: "application/json" });
-    } catch {}
+    } catch { /* ignore */ }
 
     return resHTML(renderHTML(rec, qrDataUrl));
   } catch (e) {
