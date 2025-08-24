@@ -108,164 +108,77 @@
   </main>
 
   <script>
-    /* ---------- helpers ---------- */
-    const $ = (id) => document.getElementById(id);
-    const tbody = document.querySelector('#tbl tbody');
+  /* ---------- helpers ---------- */
+  const $ = (id) => document.getElementById(id);
+  const tbody = document.querySelector('#tbl tbody');
 
-    function setBanner(elId, text, ok=true){
-      const el = $(elId);
-      el.textContent = text;
-      el.className = ok ? 'ok' : 'bad';
+  // NEW: always build absolute URLs to functions (prevents path issues)
+  const fnUrl = (path, params = {}) => {
+    const u = new URL(path, location.origin);
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+    return u.toString();
+  };
+
+  function setBanner(elId, text, ok=true){
+    const el = $(elId);
+    el.textContent = text;
+    el.className = ok ? 'ok' : 'bad';
+  }
+  function refreshKeyState(){
+    const has = !!localStorage.getItem('ADMIN_KEY');
+    const el = $('keyState');
+    el.textContent = has ? 'Key saved ✓' : 'No key saved';
+    el.className = has ? 'ok' : 'bad';
+  }
+  function cell(text){ const td=document.createElement('td'); td.textContent=text??''; return td; }
+  function button(label, onClick){ const b=document.createElement('button'); b.textContent=label; b.onclick=onClick; return b; }
+
+  /* ---------- ... keep the rest of your code ... ---------- */
+
+  // REPLACE your appendRows(...) with this version (adds a Print link with correct URL)
+  function appendRows(rows){
+    for(const r of rows){
+      const tr = document.createElement('tr');
+
+      // refId cell clickable -> fills the stage box
+      const tdRef = document.createElement('td');
+      const a = document.createElement('a');
+      a.href = '#';
+      a.textContent = r.id;
+      a.onclick = (e)=>{ e.preventDefault(); $('refForStage').value = r.id; window.scrollTo({top:0,behavior:'smooth'}); };
+      tdRef.appendChild(a);
+      tr.appendChild(tdRef);
+
+      tr.appendChild(cell(r.ts));
+      tr.appendChild(cell(r.name));
+      tr.appendChild(cell(r.email));
+      tr.appendChild(cell(r.locked ? 'TRUE':'FALSE'));
+      tr.appendChild(cell(String(r.version ?? '')));
+      tr.appendChild(cell(String(r.views ?? '')));
+
+      const tdAct = document.createElement('td');
+
+      // NEW: Print link that opens the print function (QR renders there)
+      const printLink = document.createElement('a');
+      printLink.href = fnUrl('/.netlify/functions/booking-print', { ref: r.id });
+      printLink.target = '_blank';
+      printLink.rel = 'noopener';
+      printLink.textContent = 'Print';
+      tdAct.appendChild(printLink);
+
+      const sep = document.createTextNode(' · ');
+      tdAct.appendChild(sep);
+
+      const bLock = button('Lock', ()=>doAction('lock', r.id));
+      const bUnlock = button('Unlock', ()=>doAction('unlock', r.id));
+      bUnlock.style.marginLeft = '6px';
+      tdAct.appendChild(bLock);
+      tdAct.appendChild(bUnlock);
+
+      tr.appendChild(tdAct);
+      tbody.appendChild(tr);
     }
-    function refreshKeyState(){
-      const has = !!localStorage.getItem('ADMIN_KEY');
-      const el = $('keyState');
-      el.textContent = has ? 'Key saved ✓' : 'No key saved';
-      el.className = has ? 'ok' : 'bad';
-    }
-    function cell(text){ const td=document.createElement('td'); td.textContent=text??''; return td; }
-    function button(label, onClick){ const b=document.createElement('button'); b.textContent=label; b.onclick=onClick; return b; }
-
-    /* ---------- key UI ---------- */
-    $('saveKey').onclick = ()=>{
-      const v = $('adminKey').value.trim();
-      if(!v){ alert('Paste a key first'); return; }
-      localStorage.setItem('ADMIN_KEY', v);
-      $('adminKey').value = '';
-      refreshKeyState();
-      loadIndex(true);
-    };
-    $('showKey').onclick = ()=>{
-      const v = localStorage.getItem('ADMIN_KEY') || '';
-      if(!v){ alert('No key saved'); return; }
-      prompt('Your current ADMIN_KEY (copy if needed):', v);
-    };
-    refreshKeyState();
-
-    /* ---------- stage update ---------- */
-    $('btnStage').onclick = async () => {
-      const ref   = $('refForStage').value.trim();
-      const stage = $('stageSel').value;
-      const dueAtRaw = $('dueAt').value || null; // "YYYY-MM-DDTHH:mm"
-      const key   = localStorage.getItem('ADMIN_KEY') || '';
-      if(!ref){ alert('Enter a reference'); return; }
-      if(!key){ alert('Admin key missing'); return; }
-
-      const dueAt = dueAtRaw ? new Date(dueAtRaw).toISOString() : null;
-
-      try{
-        const res = await fetch('/.netlify/functions/job-update', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json','X-Admin-Key':key},
-          body: JSON.stringify({ ref, stage, dueAt })
-        });
-        const txt = await res.text().catch(()=> '');
-        const ok = res.ok;
-        setBanner('stageMsg', ok ? `Stage updated ✓ (${ref})` : `Error: ${txt || res.status}`, ok);
-        if(ok) loadIndex(true);
-      }catch(e){
-        setBanner('stageMsg', 'Request failed: ' + e.message, false);
-      }
-    };
-
-    /* ---------- booking index w/ pagination (works w/ old or new API) ---------- */
-    let cursor = ''; // server may return nextCursor
-    function appendRows(rows){
-      for(const r of rows){
-        const tr = document.createElement('tr');
-
-        // refId cell clickable -> fills the stage box
-        const tdRef = document.createElement('td');
-        const a = document.createElement('a');
-        a.href = '#';
-        a.textContent = r.id;
-        a.onclick = (e)=>{ e.preventDefault(); $('refForStage').value = r.id; window.scrollTo({top:0,behavior:'smooth'}); };
-        tdRef.appendChild(a);
-        tr.appendChild(tdRef);
-
-        tr.appendChild(cell(r.ts));
-        tr.appendChild(cell(r.name));
-        tr.appendChild(cell(r.email));
-        tr.appendChild(cell(r.locked ? 'TRUE':'FALSE'));
-        tr.appendChild(cell(String(r.version ?? '')));
-        tr.appendChild(cell(String(r.views ?? '')));
-
-        const tdAct = document.createElement('td');
-        const bLock = button('Lock', ()=>doAction('lock', r.id));
-        const bUnlock = button('Unlock', ()=>doAction('unlock', r.id));
-        bUnlock.style.marginLeft = '6px';
-        tdAct.appendChild(bLock);
-        tdAct.appendChild(bUnlock);
-        tr.appendChild(tdAct);
-
-        tbody.appendChild(tr);
-      }
-    }
-
-    async function loadIndex(reset=false){
-      if (reset) {
-        cursor = '';
-        tbody.innerHTML = '';
-      }
-      const key = localStorage.getItem('ADMIN_KEY') || '';
-      if(!key){ setBanner('msg','Enter admin key first.', false); return; }
-      try{
-        // Build URL with optional cursor
-        const url = new URL('/.netlify/functions/booking-index', location.origin);
-        url.searchParams.set('limit', '100');
-        if (cursor) url.searchParams.set('cursor', cursor);
-
-        const res = await fetch(url, { headers:{'X-Admin-Key':key} });
-        if(!res.ok){
-          const txt = await res.text().catch(()=> '');
-          setBanner('msg', 'Unauthorized or error loading index. ' + txt, false);
-          return;
-        }
-
-        const data = await res.json();
-
-        // Support both shapes:
-        // 1) Old: data is an array of rows
-        // 2) New: data = { rows, nextCursor }
-        const rows = Array.isArray(data) ? data : (data.rows || []);
-        const nextCursor = Array.isArray(data) ? '' : (data.nextCursor || '');
-
-        appendRows(rows);
-
-        cursor = nextCursor;
-        $('btnMore').disabled = !cursor;
-
-        const currentCount = document.querySelectorAll('#tbl tbody tr').length;
-        setBanner('msg', `Loaded ${currentCount} record(s).`, true);
-      }catch(e){
-        setBanner('msg','Failed to load index: ' + e.message, false);
-      }
-    }
-
-    $('btnReload').onclick = ()=> loadIndex(true);
-    $('btnMore').onclick   = ()=> loadIndex(false);
-
-    /* ---------- lock / unlock ---------- */
-    async function doAction(action, refId){
-      const key = localStorage.getItem('ADMIN_KEY') || '';
-      if(!key){ setBanner('msg','Enter admin key first.', false); return; }
-      try{
-        const res = await fetch('/.netlify/functions/booking-admin', {
-          method:'POST',
-          headers:{'Content-Type':'application/json','X-Admin-Key':key},
-          body:JSON.stringify({ refId, action })
-        });
-        const txt = await res.text().catch(()=> '');
-        const ok = res.ok;
-        setBanner('msg', ok ? `${action.toUpperCase()} OK for ${refId}` : `Error: ${txt || res.status}`, ok);
-        if(ok) loadIndex(true);
-      }catch(e){
-        setBanner('msg','Request failed: ' + e.message, false);
-      }
-    }
-
-    /* ---------- auto-load ---------- */
-    if(localStorage.getItem('ADMIN_KEY')) loadIndex(true);
-  </script>
+  }
+</script>
 </body>
 </html>
