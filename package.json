@@ -31,5 +31,6 @@
 }
 
 "dependencies": {
-  "qrcode": "^1.5.4"
+  "qrcode": "^1.5.3",
+  "@netlify/blobs": "^8.0.0"
 }

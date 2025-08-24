@@ -70,16 +70,6 @@ const css = `
   }`;
   
 
-const esc = (s = "") =>
-  String(s).replace(/[&<>"']/g, (m) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  }[m]));
-
-const ymd = (d) => (d ? d : "");
 
 
 // NOTE: keep `qrDataUrl` param – this is what shows the QR
@@ -133,7 +123,7 @@ function renderHTML(rec, qrDataUrl) {
       <h1>Greenleaf — Service Booking</h1>
       <div class="muted small">EFNET-QMS 005 · v3.0 · Generated ${esc(new Date().toLocaleString())}</div>
     </div>
-    <div class="qr"><img src="${qrDataUrl}" alt="QR" width="110" height="110"></div>
+    <div class="qr"><img src="${qrUrl}" alt="QR" width="110" height="110"></div>
   </div>
 
   <div class="box" style="margin-bottom:10px;">
@@ -234,6 +224,14 @@ function renderHTML(rec, qrDataUrl) {
 }
 
 /* ---------------------- handler ---------------------- */
+// --- response helpers (top-level) ---
+const htmlHeaders = { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" };
+const jsonHeaders = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+
+const resHTML = (html) => ({ statusCode: 200, headers: htmlHeaders, body: html });
+const resJSON = (status, obj) => ({ statusCode: status, headers: jsonHeaders, body: JSON.stringify(obj) });
+
+// --- handler ---
 export async function handler(event) {
   try {
     const refId = (event.queryStringParameters?.ref || "").trim();
@@ -244,11 +242,14 @@ export async function handler(event) {
     const rec = await store.get(key, { type: "json" });
     if (!rec) return resJSON(404, { error: "Not found" });
 
-    // ✅ Generate inline QR and PASS it into the renderer
     const qrValue = `https://booking.greenleafassurance.com/?ref=${encodeURIComponent(refId)}`;
-    const qrDataUrl = await QRCode.toDataURL(qrValue, { margin: 1, scale: 4 });
+    let qrDataUrl;
+    try {
+      qrDataUrl = await QRCode.toDataURL(qrValue, { margin: 1, scale: 4 });
+    } catch {
+      qrDataUrl = pngDataUrlFromText(qrValue); // fallback
+    }
 
-    // Best‑effort event log
     try {
       rec.events = Array.isArray(rec.events) ? rec.events : [];
       rec.events.push({ type: "print", ts: new Date().toISOString(), actor: "user" });
