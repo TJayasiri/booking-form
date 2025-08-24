@@ -3,6 +3,7 @@ import { getStore } from "@netlify/blobs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import QRCode from "qrcode";
 
 /* ---------------------- storage helpers ---------------------- */
 const isLocal = process.env.NETLIFY_DEV === "true";
@@ -37,11 +38,12 @@ const ymd = (s = "") => {
 };
 
 function pngDataUrlFromText(text) {
-  // quick QR placeholder if your app didn’t send one; replace with real QR if you prefer
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='110' height='110'>
-    <rect width='100%' height='100%' fill='#f4f4f5'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-family='monospace' font-size='10'>${esc(
+    <rect width='100%' height='100%' fill='#f4f4f5'/>
+    <text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-family='monospace' font-size='10'>${esc(
       text
-    )}</text></svg>`;
+    )}</text>
+  </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
@@ -63,20 +65,20 @@ const css = `
   th{background:#f9fafb;text-align:left}
   .sig{height:42px;object-fit:contain}
   @media print {
+    @page { size: A4; margin: 16mm 14mm; }
     body{padding:0;margin:10mm}
     .hd{page-break-inside:avoid}
   }
 `;
 
 /* ---------------------- HTML builder ---------------------- */
-function renderHTML(record) {
+function renderHTML(record, qrDataUrl) {
   const {
     refId = "",
     ts = "",
     locked = false,
     form = {},
     terms = {},
-    qrDataUrl,
   } = record || {};
 
   const {
@@ -90,22 +92,13 @@ function renderHTML(record) {
     ack = {},
   } = form;
 
-  const cats = [
-    "production",
-    "permanent",
-    "temporary",
-    "migrant",
-    "contractors",
-    "homeworkers",
-    "management",
-  ];
+  const cats = ["production","permanent","temporary","migrant","contractors","homeworkers","management"];
+  const sum = (k) => cats.reduce((a,c)=>a + Number(staffCounts?.[c]?.[k] || 0), 0);
+  const totalMale = sum("male");
+  const totalFemale = sum("female");
 
-  const totalMale = cats.reduce((n, k) => n + Number(staffCounts?.[k]?.male || 0), 0);
-  const totalFemale = cats.reduce((n, k) => n + Number(staffCounts?.[k]?.female || 0), 0);
-
-  const qrUrl =
-    qrDataUrl ||
-    pngDataUrlFromText(`https://booking.greenleafassurance.com/?ref=${refId}`);
+  // Use provided QR or fallback to a readable SVG with the URL
+  const qrUrl = qrDataUrl || pngDataUrlFromText(`https://booking.greenleafassurance.com/?ref=${refId}`);
 
   return `<!doctype html>
 <html><head>
@@ -114,33 +107,23 @@ function renderHTML(record) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>${css}</style>
 </head>
-<body onload="setTimeout(()=>window.print(), 60)">
+<body onload="setTimeout(()=>window.print(), 50)">
   <div class="hd">
     <div>
       <h1>Greenleaf — Service Booking</h1>
-      <div class="muted small">EFNET-QMS 005 · v3.0 · Generated ${esc(
-        new Date().toLocaleString()
-      )}</div>
+      <div class="muted small">EFNET-QMS 005 · v3.0 · Generated ${esc(new Date().toLocaleString())}</div>
     </div>
     <div class="qr"><img src="${qrUrl}" alt="QR" width="110" height="110"></div>
   </div>
 
   <div class="box" style="margin-bottom:10px;">
-    <div><b>Reference:</b> <span class="mono">${esc(refId)}</span> &nbsp; <b>Created:</b> ${esc(
-    ts || ""
-  )} &nbsp; <b>Locked:</b> ${locked ? "YES" : "NO"}</div>
+    <div><b>Reference:</b> <span class="mono">${esc(refId)}</span> &nbsp; <b>Created:</b> ${esc(ts || "")} &nbsp; <b>Locked:</b> ${locked ? "YES" : "NO"}</div>
   </div>
 
   <h2>1 — Audit Information & Platform Data</h2>
   <table>
-    <tr><th style="width:28%">Service Type</th><td>${esc(meta.auditType || "")}${
-    meta.auditType === "Other" ? ` — ${esc(meta.auditTypeOther || "")}` : ""
-  }</td></tr>
-    <tr><th>Fulfillment</th><td>${esc(meta.fulfillment || "")}${
-    (meta.fulfillment || "Fixed") === "Fixed"
-      ? ` — ${esc(meta.auditDate || "")}`
-      : ` — ${esc(meta.windowStart || "")} → ${esc(meta.windowEnd || "")}`
-  }</td></tr>
+    <tr><th style="width:28%">Service Type</th><td>${esc(meta.auditType || "")}${(meta.auditType || "") === "Other" ? ` — ${esc(meta.auditTypeOther || "")}` : ""}</td></tr>
+    <tr><th>Fulfillment</th><td>${esc(meta.fulfillment || "")}${(meta.fulfillment || "Fixed") === "Fixed" ? ` — ${esc(meta.auditDate || "")}` : ` — ${esc(meta.windowStart || "")} → ${esc(meta.windowEnd || "")}`}</td></tr>
     <tr><th>Requested Services</th><td>${esc((meta.services || []).join(", "))}</td></tr>
     <tr><th>Clients expected</th><td>${esc(meta.clientsExpected || "")}</td></tr>
     <tr><th>Platform Ref / Site</th><td>${esc(meta.platformRef || "")}  ·  ${esc(meta.platformSite || "")}</td></tr>
@@ -186,33 +169,22 @@ function renderHTML(record) {
   <h2>3 — Manday & Special Conditions</h2>
   <table>
     <tr><th>Category</th><th>Male</th><th>Female</th></tr>
-    ${cats
-      .map(
-        (c) => `
+    ${["production","permanent","temporary","migrant","contractors","homeworkers","management"].map(c => `
       <tr><td>${esc(c)}</td>
       <td>${Number(staffCounts?.[c]?.male || 0)}</td>
-      <td>${Number(staffCounts?.[c]?.female || 0)}</td></tr>`
-      )
-      .join("")}
+      <td>${Number(staffCounts?.[c]?.female || 0)}</td></tr>`).join("")}
     <tr><th>Total</th><th>${totalMale}</th><th>${totalFemale}</th></tr>
   </table>
 
-  ${
-    special?.details
-      ? `
-  <div class="box" style="margin-top:8px;">
-    <b>Special Conditions / Notes:</b>
-    <div class="small">${esc(special.details)}</div>
-  </div>`
-      : ""
-  }
+  ${special?.details ? `
+    <div class="box" style="margin-top:8px;">
+      <b>Special Conditions / Notes:</b>
+      <div class="small">${esc(special.details)}</div>
+    </div>` : ""}
 
   <h2>4 — Acknowledgements</h2>
   <table>
-    <tr>
-      <th style="width:50%">Requester</th>
-      <th style="width:50%">Greenleaf</th>
-    </tr>
+    <tr><th style="width:50%">Requester</th><th style="width:50%">Greenleaf</th></tr>
     <tr>
       <td>
         <div class="small"><b>Name:</b> ${esc(ack.requesterName || "")}</div>
@@ -241,45 +213,54 @@ function renderHTML(record) {
 </body></html>`;
 }
 
+/* ---------------------- response helpers ---------------------- */
+const htmlHeaders = { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" };
+const jsonHeaders = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+const resHTML = (html) => ({ statusCode: 200, headers: htmlHeaders, body: html });
+const resJSON = (status, obj) => ({ statusCode: status, headers: jsonHeaders, body: JSON.stringify(obj) });
+
 /* ---------------------- handler ---------------------- */
 export async function handler(event) {
   try {
-    if (event.httpMethod !== "GET") {
-      return { statusCode: 405, body: "Method not allowed" };
-    }
+    if (event.httpMethod !== "GET") return resJSON(405, { error: "Method not allowed" });
 
-    const ref = (event.queryStringParameters?.ref || "").trim();
-    if (!ref) {
-      return { statusCode: 400, body: "Missing ref" };
-    }
+    const refId = (event.queryStringParameters?.ref || "").trim();
+    if (!refId) return resJSON(400, { error: "Missing ref" });
 
     let rec = null;
 
     if (isLocal) {
-      const p = path.join(LOCAL_DIR, `${ref}.json`);
-      try {
-        const raw = await fs.readFile(p, "utf8");
-        rec = JSON.parse(raw);
-      } catch {
-        return { statusCode: 404, body: "Record not found" };
-      }
+      // Read local JSON saved by your dev flows
+      const p = path.join(LOCAL_DIR, `${refId}.json`);
+      const raw = await fs.readFile(p, "utf8").catch(() => null);
+      if (!raw) return resJSON(404, { error: "Record not found" });
+      rec = JSON.parse(raw);
     } else {
       const store = makeStore();
-      rec = await store.get(`records/${ref}.json`, { type: "json" });
-      if (!rec) return { statusCode: 404, body: "Record not found" };
+      rec = await store.get(`records/${refId}.json`, { type: "json" });
+      if (!rec) return resJSON(404, { error: "Record not found" });
+
+      // Best‑effort event log (don’t break printing if it fails)
+      try {
+        rec.events = Array.isArray(rec.events) ? rec.events : [];
+        rec.events.push({ type: "print", ts: new Date().toISOString(), actor: "user" });
+        rec.version = (rec.version || 0) + 1;
+        await store.set(`records/${refId}.json`, JSON.stringify(rec), { contentType: "application/json" });
+      } catch {}
     }
 
-    const html = renderHTML(rec);
-    return {
-      statusCode: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-      },
-      body: html,
-    };
+    // Generate QR (fallback to SVG text if qrcode fails)
+    const qrValue = `https://booking.greenleafassurance.com/?ref=${encodeURIComponent(refId)}`;
+    let qrDataUrl = "";
+    try {
+      qrDataUrl = await QRCode.toDataURL(qrValue, { margin: 1, scale: 4 });
+    } catch {
+      qrDataUrl = pngDataUrlFromText(qrValue);
+    }
+
+    return resHTML(renderHTML(rec, qrDataUrl));
   } catch (e) {
     console.error("booking-print error:", e);
-    return { statusCode: 500, body: "Failed to render" };
+    return resJSON(500, { error: e?.message || "Failed to render" });
   }
 }
