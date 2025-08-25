@@ -1,31 +1,40 @@
 // netlify/functions/booking-print.js
 import { getStore } from "@netlify/blobs";
-import fs from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
 import QRCode from "qrcode";
 
-/* -------- env + storage -------- */
-const isLocal = process.env.NETLIFY_DEV === "true";
-const LOCAL_DIR = path.join(os.tmpdir(), "greenleaf-bookings");
-
-// In production, talk to Blobs; in dev, we use the local JSON file written by save-booking
+/* -------- storage -------- */
 function makeStore() {
-  if (isLocal) return null; // not used in dev
-  // Production: auto-config or explicit (both OK)
-  return getStore({
-    name: "bookings",
-    siteID: process.env.NETLIFY_SITE_ID,
-    token: process.env.NETLIFY_API_TOKEN,
-  });
+  const isDev = process.env.NETLIFY_DEV === "true";
+  // If we're in dev *and* we have site credentials, use them.
+  if (isDev && process.env.NETLIFY_SITE_ID && process.env.NETLIFY_API_TOKEN) {
+    return getStore({
+      name: "bookings",
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_API_TOKEN,
+    });
+  }
+  // Production (or Netlify CLI linked with site) auto-configs.
+  return getStore({ name: "bookings" });
+}
+
+/* Fallback: in dev, pull record from the live site if blobs don’t have it */
+async function fetchFromProd(refId) {
+  try {
+    const url = `https://booking.greenleafassurance.com/.netlify/functions/get-booking?ref=${encodeURIComponent(refId)}`;
+    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    // get-booking typically returns the whole record already
+    return data && typeof data === "object" ? data : null;
+  } catch {
+    return null;
+  }
 }
 
 /* -------- helpers -------- */
 const esc = (s = "") =>
   String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
-
 const ymd = (d) => (d ? d : "");
-
 function pngDataUrlFromText(text) {
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='110' height='110'>
     <rect width='100%' height='100%' fill='#f4f4f5'/>
@@ -177,10 +186,10 @@ function renderHTML(rec, qrDataUrl) {
     <tr><th>Total</th><th>${totalMale}</th><th>${totalFemale}</th></tr>
   </table>
 
-  ${special?.details ? `
+  ${form?.special?.details ? `
     <div class="box" style="margin-top:8px;">
       <b>Special Conditions / Notes:</b>
-      <div class="small">${esc(special.details)}</div>
+      <div class="small">${esc(form.special.details)}</div>
     </div>` : ""}
 
   <h2>4 — Acknowledgements</h2>
@@ -214,52 +223,52 @@ function renderHTML(rec, qrDataUrl) {
 }
 
 /* -------- responses -------- */
-function resHTML(html) {
+function resHTML(html, debug = {}) {
   return {
     statusCode: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
-      "X-Commit-Ref": process.env.COMMIT_REF || "dev"
+      "X-Commit-Ref": process.env.COMMIT_REF || "dev",
+      "X-Debug": JSON.stringify(debug),
     },
     body: html,
   };
 }
-function resJSON(code, body) {
+function resJSON(code, body, debug = {}) {
   return {
     statusCode: code,
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Debug": JSON.stringify(debug),
+    },
     body: JSON.stringify(body),
   };
 }
 
 /* -------- handler -------- */
 export async function handler(event) {
+  const isDev = process.env.NETLIFY_DEV === "true";
   try {
     if (event.httpMethod !== "GET") return resJSON(405, { error: "Method not allowed" });
 
     const refId = (event.queryStringParameters?.ref || "").trim();
     if (!refId) return resJSON(400, { error: "Missing ref" });
 
-    // --- DEV: read from temp file written by save-booking
-    let rec;
-    if (isLocal) {
-      try {
-        const file = path.join(LOCAL_DIR, `${refId}.json`);
-        const txt = await fs.readFile(file, "utf8");
-        rec = JSON.parse(txt);
-      } catch {
-        return resJSON(404, { error: "Not found (dev)" });
-      }
-    } else {
-      // --- PROD: read from Blobs
-      const store = makeStore();
-      const key = `records/${refId}.json`;
-      rec = await store.get(key, { type: "json" });
-      if (!rec) return resJSON(404, { error: "Not found" });
+    const store = makeStore();
+    const key = `records/${refId}.json`;
+
+    let rec = await store.get(key, { type: "json" });
+
+    let mode = rec ? "blobs" : "fallback";
+    if (!rec && isDev) {
+      rec = await fetchFromProd(refId);
+    }
+    if (!rec) {
+      return resJSON(404, { error: isDev ? "Not found (dev)" : "Not found" }, { mode, key });
     }
 
-    // QR
     const qrValue = `https://booking.greenleafassurance.com/?ref=${encodeURIComponent(refId)}`;
     let qrDataUrl;
     try {
@@ -268,19 +277,17 @@ export async function handler(event) {
       qrDataUrl = pngDataUrlFromText(qrValue);
     }
 
-    // Best‑effort print event only in PROD (don’t write during dev)
-    if (!isLocal) {
-      try {
-        const store = makeStore();
-        const key = `records/${refId}.json`;
+    // Best‑effort event log (only when we have blob store)
+    try {
+      if (mode === "blobs") {
         rec.events = Array.isArray(rec.events) ? rec.events : [];
         rec.events.push({ type: "print", ts: new Date().toISOString(), actor: "user" });
         rec.version = (rec.version || 0) + 1;
         await store.set(key, JSON.stringify(rec), { contentType: "application/json" });
-      } catch { /* ignore */ }
-    }
+      }
+    } catch { /* ignore */ }
 
-    return resHTML(renderHTML(rec, qrDataUrl));
+    return resHTML(renderHTML(rec, qrDataUrl), { mode, key });
   } catch (e) {
     return resJSON(500, { error: e?.message || "Failed to render print" });
   }
