@@ -1,40 +1,33 @@
 // netlify/functions/booking-print.js
 import { getStore } from "@netlify/blobs";
 import QRCode from "qrcode";
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
 
-/* -------- storage -------- */
+const IS_DEV = process.env.NETLIFY_DEV === "true";
+const LOCAL_DIR = path.join(os.tmpdir(), "greenleaf-bookings"); // same dir used by save-booking.js
+
+/* ---------------- storage ---------------- */
 function makeStore() {
-  const isDev = process.env.NETLIFY_DEV === "true";
-  // If we're in dev *and* we have site credentials, use them.
-  if (isDev && process.env.NETLIFY_SITE_ID && process.env.NETLIFY_API_TOKEN) {
+  // In dev, only use Blobs if both env vars are present
+  if (IS_DEV && process.env.NETLIFY_SITE_ID && process.env.NETLIFY_API_TOKEN) {
     return getStore({
       name: "bookings",
       siteID: process.env.NETLIFY_SITE_ID,
       token: process.env.NETLIFY_API_TOKEN,
     });
   }
-  // Production (or Netlify CLI linked with site) auto-configs.
-  return getStore({ name: "bookings" });
+  // In prod, auto-configured
+  if (!IS_DEV) return getStore({ name: "bookings" });
+  // Dev but no credentials → signal to caller to use local fallback
+  return null;
 }
 
-/* Fallback: in dev, pull record from the live site if blobs don’t have it */
-async function fetchFromProd(refId) {
-  try {
-    const url = `https://booking.greenleafassurance.com/.netlify/functions/get-booking?ref=${encodeURIComponent(refId)}`;
-    const res = await fetch(url, { headers: { "Accept": "application/json" } });
-    if (!res.ok) return null;
-    const data = await res.json();
-    // get-booking typically returns the whole record already
-    return data && typeof data === "object" ? data : null;
-  } catch {
-    return null;
-  }
-}
-
-/* -------- helpers -------- */
+/* --------------- helpers ---------------- */
 const esc = (s = "") =>
   String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
-const ymd = (d) => (d ? d : "");
+
 function pngDataUrlFromText(text) {
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='110' height='110'>
     <rect width='100%' height='100%' fill='#f4f4f5'/>
@@ -44,55 +37,41 @@ function pngDataUrlFromText(text) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-/* -------- A4, brand-forward, print-first CSS -------- */
+const ymd = (d) => (d ? d : "");
+
+/** race a promise with a timeout (best-effort) */
+function withTimeout(promise, ms, label = "op") {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label}-timeout-${ms}ms`)), ms)
+    ),
+  ]);
+}
+
+/* ---------- A4 print-first CSS (brand #62BBC1) ---------- */
 const css = /* css */ `
   :root{
-    --brand:#62BBC1;
-    --ink:#0b0b0c;
-    --muted:#6b7280;
-    --line:#e5e7eb;
-    --soft:#f7f7f8;
+    --brand:#62BBC1; --ink:#0b0b0c; --muted:#6b7280; --line:#e5e7eb; --soft:#f7f7f8;
   }
   @page { size: A4; margin: 16mm 14mm; }
   html,body { background:#fff; }
-  body{
-    color:var(--ink);
-    font:13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  }
-  .hd{
-    display:flex; align-items:center; justify-content:space-between;
-    padding-bottom:10px; margin-bottom:12px;
-    border-bottom:3px solid var(--brand);
-  }
+  body{ color:var(--ink); font:13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+  .hd{ display:flex; align-items:center; justify-content:space-between; padding-bottom:10px; margin-bottom:12px; border-bottom:3px solid var(--brand); }
   h1{ margin:0; font-size:18px; font-weight:600 }
-  h2{
-    margin:16px 0 8px; font-size:15px; font-weight:600;
-    border-bottom:1px solid var(--line); padding-bottom:4px;
-  }
-  .muted{ color:var(--muted); }
-  .small{ font-size:12px; color:#4b5563; }
-  .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  .box{
-    background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px;
-  }
-  table{
-    width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line);
-    border-radius:10px; overflow:hidden;
-  }
-  th,td{ border:1px solid var(--line); padding:7px 9px; vertical-align:top; }
-  th{ background:#fafafa; text-align:left; font-weight:600; }
-  .qr img{
-    display:block; background:#fff; border:1px solid var(--line); border-radius:10px; padding:4px;
-  }
+  h2{ margin:16px 0 8px; font-size:15px; font-weight:600; border-bottom:1px solid var(--line); padding-bottom:4px; }
+  .muted{ color:var(--muted) } .small{ font-size:12px; color:#4b5563 } .mono{ font-family:ui-monospace, SFMono-Regular, Menlo, monospace }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
+  .box{ background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px }
+  table{ width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden }
+  th,td{ border:1px solid var(--line); padding:7px 9px; vertical-align:top }
+  th{ background:#fafafa; text-align:left; font-weight:600 }
+  .qr img{ display:block; background:#fff; border:1px solid var(--line); border-radius:10px; padding:4px }
   .sig{ height:42px; object-fit:contain }
-  @media print {
-    body{ margin:0 }
-    .hd{ page-break-inside:avoid }
-  }
+  @media print { body{ margin:0 } .hd{ page-break-inside:avoid } }
 `;
 
-/* -------- HTML -------- */
+/* ---------------- HTML ---------------- */
 function renderHTML(rec, qrDataUrl) {
   const { refId, form = {}, ts, locked, terms = {} } = rec || {};
   const {
@@ -105,13 +84,10 @@ function renderHTML(rec, qrDataUrl) {
   const totalMale = sum("male");
   const totalFemale = sum("female");
 
-  return `<!doctype html>
-<html><head>
-<meta charset="utf-8">
-<title>Booking ${esc(refId || "")}</title>
+  return `<!doctype html><html><head>
+<meta charset="utf-8"><title>Booking ${esc(refId || "")}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<style>${css}</style>
-</head>
+<style>${css}</style></head>
 <body onload="setTimeout(()=>window.print(), 50)">
   <div class="hd">
     <div>
@@ -122,11 +98,9 @@ function renderHTML(rec, qrDataUrl) {
   </div>
 
   <div class="box" style="margin-bottom:10px;">
-    <div>
-      <b>Reference:</b> <span class="mono">${esc(refId || "")}</span>
+    <div><b>Reference:</b> <span class="mono">${esc(refId || "")}</span>
       &nbsp; <b>Created:</b> ${esc(ts || "")}
-      &nbsp; <b>Locked:</b> ${locked ? "YES" : "NO"}
-    </div>
+      &nbsp; <b>Locked:</b> ${locked ? "YES" : "NO"}</div>
   </div>
 
   <h2>1 — Audit Information & Platform Data</h2>
@@ -180,34 +154,26 @@ function renderHTML(rec, qrDataUrl) {
   <table>
     <tr><th>Category</th><th>Male</th><th>Female</th></tr>
     ${["production","permanent","temporary","migrant","contractors","homeworkers","management"].map(c => `
-      <tr><td>${esc(c)}</td>
-      <td>${Number(staffCounts?.[c]?.male || 0)}</td>
-      <td>${Number(staffCounts?.[c]?.female || 0)}</td></tr>`).join("")}
+      <tr><td>${esc(c)}</td><td>${Number(staffCounts?.[c]?.male || 0)}</td><td>${Number(staffCounts?.[c]?.female || 0)}</td></tr>`).join("")}
     <tr><th>Total</th><th>${totalMale}</th><th>${totalFemale}</th></tr>
   </table>
 
-  ${form?.special?.details ? `
-    <div class="box" style="margin-top:8px;">
-      <b>Special Conditions / Notes:</b>
-      <div class="small">${esc(form.special.details)}</div>
-    </div>` : ""}
+  ${form?.special?.details ? `<div class="box" style="margin-top:8px;">
+    <b>Special Conditions / Notes:</b><div class="small">${esc(form.special.details)}</div></div>` : ""}
 
   <h2>4 — Acknowledgements</h2>
   <table>
     <tr><th style="width:50%">Requester</th><th style="width:50%">Greenleaf</th></tr>
-    <tr>
-      <td>
-        <div class="small"><b>Name:</b> ${esc(ack.requesterName || "")}</div>
-        <div class="small"><b>Title/Role:</b> ${esc(ack.requesterTitle || "")}</div>
-        <div class="small"><b>Date:</b> ${esc(ymd(ack.requesterDate || ""))}</div>
-        ${ack.requesterSignatureUrl ? `<div><img class="sig" src="${esc(ack.requesterSignatureUrl)}"/></div>` : ""}
-      </td>
-      <td>
-        <div class="small"><b>Name:</b> ${esc(ack.glaName || "")}</div>
-        <div class="small"><b>Date:</b> ${esc(ymd(ack.glaDate || ""))}</div>
-        ${ack.glaSignatureUrl ? `<div><img class="sig" src="${esc(ack.glaSignatureUrl)}"/></div>` : ""}
-      </td>
-    </tr>
+    <tr><td>
+      <div class="small"><b>Name:</b> ${esc(ack.requesterName || "")}</div>
+      <div class="small"><b>Title/Role:</b> ${esc(ack.requesterTitle || "")}</div>
+      <div class="small"><b>Date:</b> ${esc(ymd(ack.requesterDate || ""))}</div>
+      ${ack.requesterSignatureUrl ? `<div><img class="sig" src="${esc(ack.requesterSignatureUrl)}"/></div>` : ""}
+    </td><td>
+      <div class="small"><b>Name:</b> ${esc(ack.glaName || "")}</div>
+      <div class="small"><b>Date:</b> ${esc(ymd(ack.glaDate || ""))}</div>
+      ${ack.glaSignatureUrl ? `<div><img class="sig" src="${esc(ack.glaSignatureUrl)}"/></div>` : ""}
+    </td></tr>
   </table>
 
   <p class="small" style="margin-top:6px;">
@@ -215,14 +181,13 @@ function renderHTML(rec, qrDataUrl) {
     ${terms?.version ? ` · Version: ${esc(terms.version)}` : ""}
     ${terms?.url ? ` · ${esc(terms.url)}` : ""}
   </p>
-
   <p class="small" style="margin-top:12px;">
     © ${new Date().getFullYear()} Greenleaf Assurance · Reference <span class="mono">${esc(refId || "")}</span>
   </p>
 </body></html>`;
 }
 
-/* -------- responses -------- */
+/* --------------- responses --------------- */
 function resHTML(html, debug = {}) {
   return {
     statusCode: 200,
@@ -230,45 +195,59 @@ function resHTML(html, debug = {}) {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Commit-Ref": process.env.COMMIT_REF || "dev",
-      "X-Debug": JSON.stringify(debug),
+      "X-Debug-Mode": debug.mode || "",
+      "X-Debug-Note": debug.note || "",
     },
     body: html,
   };
 }
-function resJSON(code, body, debug = {}) {
+function resJSON(code, body) {
   return {
     statusCode: code,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-      "X-Debug": JSON.stringify(debug),
-    },
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
     body: JSON.stringify(body),
   };
 }
 
-/* -------- handler -------- */
+/* ---------------- handler ---------------- */
 export async function handler(event) {
-  const isDev = process.env.NETLIFY_DEV === "true";
   try {
     if (event.httpMethod !== "GET") return resJSON(405, { error: "Method not allowed" });
-
     const refId = (event.queryStringParameters?.ref || "").trim();
     if (!refId) return resJSON(400, { error: "Missing ref" });
 
-    const store = makeStore();
-    const key = `records/${refId}.json`;
+    const blobs = makeStore();
+    let rec = null;
+    let mode = "prod-blobs";
 
-    let rec = await store.get(key, { type: "json" });
-
-    let mode = rec ? "blobs" : "fallback";
-    if (!rec && isDev) {
-      rec = await fetchFromProd(refId);
+    // 1) Try Blobs (prod, or dev with creds) but cap at 5s so we never hang
+    if (blobs) {
+      try {
+        rec = await withTimeout(blobs.get(`records/${refId}.json`, { type: "json" }), 5000, "blobs-get");
+        if (rec == null && IS_DEV) mode = "dev-blobs-404";
+      } catch (e) {
+        mode = IS_DEV ? "dev-blobs-timeout" : "prod-blobs-error";
+      }
+    } else {
+      mode = "dev-no-blobs-creds";
     }
-    if (!rec) {
-      return resJSON(404, { error: isDev ? "Not found (dev)" : "Not found" }, { mode, key });
+
+    // 2) Dev fallback: read from /tmp if blobs missing/slow/404
+    if (IS_DEV && !rec) {
+      try {
+        const fp = path.join(LOCAL_DIR, `${refId}.json`);
+        const raw = await fs.readFile(fp, "utf8");
+        rec = JSON.parse(raw);
+        mode = "dev-local-file";
+      } catch {
+        return resJSON(404, { error: "Not found (dev)" });
+      }
     }
 
+    // If still nothing in prod, bail as 404
+    if (!rec) return resJSON(404, { error: "Not found" });
+
+    // Build QR
     const qrValue = `https://booking.greenleafassurance.com/?ref=${encodeURIComponent(refId)}`;
     let qrDataUrl;
     try {
@@ -277,17 +256,19 @@ export async function handler(event) {
       qrDataUrl = pngDataUrlFromText(qrValue);
     }
 
-    // Best‑effort event log (only when we have blob store)
-    try {
-      if (mode === "blobs") {
+    // Best‑effort event log (skip in dev to avoid more network I/O)
+    if (!IS_DEV && blobs) {
+      try {
         rec.events = Array.isArray(rec.events) ? rec.events : [];
         rec.events.push({ type: "print", ts: new Date().toISOString(), actor: "user" });
         rec.version = (rec.version || 0) + 1;
-        await store.set(key, JSON.stringify(rec), { contentType: "application/json" });
+        await blobs.set(`records/${refId}.json`, JSON.stringify(rec), { contentType: "application/json" });
+      } catch {
+        /* ignore logging errors */
       }
-    } catch { /* ignore */ }
+    }
 
-    return resHTML(renderHTML(rec, qrDataUrl), { mode, key });
+    return resHTML(renderHTML(rec, qrDataUrl), { mode, note: IS_DEV ? "local dev" : "prod" });
   } catch (e) {
     return resJSON(500, { error: e?.message || "Failed to render print" });
   }
