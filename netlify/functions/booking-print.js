@@ -1,11 +1,23 @@
 // netlify/functions/booking-print.js
 import { getStore } from "@netlify/blobs";
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
 import QRCode from "qrcode";
 
-/* -------- storage -------- */
+/* -------- env + storage -------- */
+const isLocal = process.env.NETLIFY_DEV === "true";
+const LOCAL_DIR = path.join(os.tmpdir(), "greenleaf-bookings");
+
+// In production, talk to Blobs; in dev, we use the local JSON file written by save-booking
 function makeStore() {
-  // On Netlify Functions you don't need siteID/token.
-  return getStore({ name: "bookings" });
+  if (isLocal) return null; // not used in dev
+  // Production: auto-config or explicit (both OK)
+  return getStore({
+    name: "bookings",
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_API_TOKEN,
+  });
 }
 
 /* -------- helpers -------- */
@@ -229,11 +241,25 @@ export async function handler(event) {
     const refId = (event.queryStringParameters?.ref || "").trim();
     if (!refId) return resJSON(400, { error: "Missing ref" });
 
-    const store = makeStore();
-    const key = `records/${refId}.json`;
-    const rec = await store.get(key, { type: "json" });
-    if (!rec) return resJSON(404, { error: "Not found" });
+    // --- DEV: read from temp file written by save-booking
+    let rec;
+    if (isLocal) {
+      try {
+        const file = path.join(LOCAL_DIR, `${refId}.json`);
+        const txt = await fs.readFile(file, "utf8");
+        rec = JSON.parse(txt);
+      } catch {
+        return resJSON(404, { error: "Not found (dev)" });
+      }
+    } else {
+      // --- PROD: read from Blobs
+      const store = makeStore();
+      const key = `records/${refId}.json`;
+      rec = await store.get(key, { type: "json" });
+      if (!rec) return resJSON(404, { error: "Not found" });
+    }
 
+    // QR
     const qrValue = `https://booking.greenleafassurance.com/?ref=${encodeURIComponent(refId)}`;
     let qrDataUrl;
     try {
@@ -242,13 +268,17 @@ export async function handler(event) {
       qrDataUrl = pngDataUrlFromText(qrValue);
     }
 
-    // Best‑effort event log
-    try {
-      rec.events = Array.isArray(rec.events) ? rec.events : [];
-      rec.events.push({ type: "print", ts: new Date().toISOString(), actor: "user" });
-      rec.version = (rec.version || 0) + 1;
-      await store.set(key, JSON.stringify(rec), { contentType: "application/json" });
-    } catch { /* ignore logging errors */ }
+    // Best‑effort print event only in PROD (don’t write during dev)
+    if (!isLocal) {
+      try {
+        const store = makeStore();
+        const key = `records/${refId}.json`;
+        rec.events = Array.isArray(rec.events) ? rec.events : [];
+        rec.events.push({ type: "print", ts: new Date().toISOString(), actor: "user" });
+        rec.version = (rec.version || 0) + 1;
+        await store.set(key, JSON.stringify(rec), { contentType: "application/json" });
+      } catch { /* ignore */ }
+    }
 
     return resHTML(renderHTML(rec, qrDataUrl));
   } catch (e) {
