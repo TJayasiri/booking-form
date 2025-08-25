@@ -3,9 +3,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { Buffer } from "node:buffer";
+import { guard } from "./_guard.js";
 
 const isLocal = process.env.NETLIFY_DEV === "true";
 const LOCAL_DIR = path.join(os.tmpdir(), "greenleaf-bookings");
+
+const ip = event.headers?.["x-nf-client-connection-ip"] ||
+           event.headers?.["x-forwarded-for"]?.split(",")[0].trim() ||
+           event.headers?.["client-ip"] ||
+           event.ip || "unknown";
+if (!guard(ip, 30, 60_000)) return json(429, { error: "Too many requests" });
 
 function makeStore() {
   if (isLocal) return getStore({ name: "bookings" });
