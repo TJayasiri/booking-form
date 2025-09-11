@@ -17,7 +17,6 @@ const STAGES = [
 
 /** ---------- Status Ribbon (React) ---------- */
 function StatusRibbon({ refId }) {
-  
   const [job, setJob] = useState(null);        // { current_stage, due_at, ... }
   const [history, setHistory] = useState([]);  // [{ stage, at }, ...]
   const [now, setNow] = useState(Date.now());
@@ -94,43 +93,7 @@ function StatusRibbon({ refId }) {
         </div>
         <div className="font-bold [font-variant-numeric:tabular-nums]">{content.countdown}</div>
       </div>
-      [build]
-  command = "npm run build"
-  publish = "dist"
-
-[dev]
-  # Run Vite via your package script and proxy it
-  command    = "npm run dev"
-  targetPort = 5173
-  port       = 8888
-  publish    = "dist"
-
-[functions]
-  directory    = "netlify/functions"
-  node_bundler = "esbuild"
-  # keep blobs external so build doesn’t fail
-  external_node_modules = ["@netlify/blobs"]
-
-# Optional: nice clean path for functions while developing/production
-[[redirects]]
-  from = "/api/*"
-  to   = "/.netlify/functions/:splat"
-  status = 200
-
-# SPA fallback (must be last)
-[[redirects]]
-  from = "/*"
-  to   = "/index.html"
-  status = 200
-  
-[[redirects]]
-  from = "/api/job/update"
-  to   = "/.netlify/functions/job-update"
-  status = 200
     </div>
-    
-
-
   );
 }
 
@@ -172,6 +135,9 @@ export default function BookingFormApp() {
       platformRef: "",
       platformSite: "",
       factoryOrRequesterId: "",
+      // NEW
+      status: "active", // "active" | "cancelled"
+      cancel: { reason: "", at: "" }, // ISO datetime + reason
     },
     requester: { company: "", address: "", contact: "", title: "", phone: "", email: "", other: "", gps: "" },
     supplier:  { sameAsRequester: false, company: "", address: "", contact: "", title: "", phone: "", email: "", other: "", gps: "" },
@@ -193,6 +159,24 @@ export default function BookingFormApp() {
       glaName: "", glaDate: "", glaSignatureUrl: "",
     },
   }));
+
+  // ---- Cancel / Undo handlers (must live inside component so they can call setForm)
+  const markCancelled = (reason) => {
+    setForm(prev => ({
+      ...prev,
+      meta: {
+        ...prev.meta,
+        status: "cancelled",
+        cancel: { reason: reason || "Cancelled by requester", at: new Date().toISOString() }
+      }
+    }));
+  };
+  const undoCancelled = () => {
+    setForm(prev => ({
+      ...prev,
+      meta: { ...prev.meta, status: "active", cancel: { reason: "", at: "" } }
+    }));
+  };
 
   // Copy supplier from requester
   useEffect(() => {
@@ -378,7 +362,15 @@ export default function BookingFormApp() {
             <p className="text-xs md:text-sm text-neutral-500">
               EFNET-QMS 005 · v3.0 · Reference <span className="font-mono">{refId}</span>
             </p>
+
+            {/* subtle cancelled badge under the title when cancelled */}
+            {form.meta.status === "cancelled" && (
+              <div className="mt-1 inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-xs text-red-700 border-red-300 bg-red-50">
+                Order Cancelled{form.meta.cancel?.reason ? ` — ${form.meta.cancel.reason}` : ""}
+              </div>
+            )}
           </div>
+
           <div className="flex items-center gap-2 print:hidden">
             <button
               onClick={() => { setRefId(genRef()); setShowQR(false); }}
@@ -407,9 +399,7 @@ export default function BookingFormApp() {
               Print
             </button>
           </div>
-          
         </div>
-
       </header>
 
       {/* Stepper */}
@@ -471,6 +461,36 @@ export default function BookingFormApp() {
 
         {step === 4 && (
           <SectionCard title="4 — Review, Acknowledgement & QR">
+            {/* Cancel / Undo control appears here */}
+            <div className="mb-3 flex items-center justify-between">
+              {form.meta.status !== "cancelled" ? (
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-md border text-sm bg-white hover:bg-neutral-50"
+                  onClick={() => {
+                    const r = prompt("Add a short reason for cancelling (optional):", "");
+                    markCancelled(r || "");
+                  }}
+                >
+                  Mark as Cancelled
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-2 rounded-full border px-2.5 py-0.5 text-xs text-red-700 border-red-300 bg-red-50">
+                    Cancelled{form.meta.cancel?.reason ? ` — ${form.meta.cancel.reason}` : ""}
+                    {form.meta.cancel?.at ? ` • ${new Date(form.meta.cancel.at).toLocaleString()}` : ""}
+                  </span>
+                  <button
+                    type="button"
+                    className="px-3 py-2 rounded-md border text-sm bg-white hover:bg-neutral-50"
+                    onClick={undoCancelled}
+                  >
+                    Undo Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+
             <Review
               form={form}
               setForm={setForm}
