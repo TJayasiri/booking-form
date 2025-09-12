@@ -85,6 +85,31 @@ html, body, #root {
   }
 }
 
+/* ===== Cancelled styling ===== */
+.cancelled-outline {
+  position: relative;
+}
+.cancelled-outline::after {
+  content: "CANCELLED";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  color: rgba(239, 68, 68, 0.12); /* red-500 at ~12% */
+  transform: rotate(-18deg);
+  font-size: clamp(36px, 8vw, 96px);
+}
+
+/* Print: make watermark darker so it’s visible on paper */
+@media print {
+  .cancelled-outline::after {
+    color: rgba(239, 68, 68, 0.18);
+  }
+}
+
 /* Utility: Hide element in print */
 .no-print {
   display: block;
