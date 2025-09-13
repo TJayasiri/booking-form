@@ -244,7 +244,7 @@ export default function BookingFormApp() {
         terms: {
           accepted: true,
           version: "2024-12-06",
-          url: "https://greenleafassurance.com/policies/terms-of-service",
+          url: "https://greenleafassurance.com/legal/terms",
         },
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
