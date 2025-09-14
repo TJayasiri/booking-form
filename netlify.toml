@@ -5,9 +5,10 @@
 [dev]
   command    = "npm run dev"
   # CHANGE THIS if your Vite dev server is 5190; otherwise leave 5173
-  targetPort = 5190
+  targetPort = 5173
   port       = 8888
   publish    = "dist"
+  
 
 [functions]
   directory    = "netlify/functions"
