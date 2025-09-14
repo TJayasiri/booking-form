@@ -586,7 +586,7 @@ function SectionCard({ title, children }) {
     <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
       <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4">
         <h2 className="text-base md:text-lg font-semibold">{title}</h2>
-        <span className="text-xs text-neutral-400">QR replaces barcodes · Printable</span>
+        {/* <span className="text-xs text-neutral-400">QR replaces barcodes · Printable</span> */}
       </div>
       <div className="space-y-6 p-5 md:p-6">{children}</div>
     </section>
@@ -1046,7 +1046,7 @@ function Review({ form, setForm, refId, ackTnC, setAckTnC, showQR, qrValue }) {
         <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
           <div className="font-medium">3.3 — Terms & Conditions</div>
           <a
-            href="https://greenleafassurance.com/policies/terms-of-service"
+            href="https://greenleafassurance.com/legal/terms"
             target="_blank"
             rel="noreferrer"
             className="text-sm text-brand hover:underline print:hidden"
