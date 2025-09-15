@@ -19,7 +19,10 @@ function makeStore() {
 function json(status, body) {
   return {
     statusCode: status,
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
     body: JSON.stringify(body),
   };
 }
@@ -44,19 +47,33 @@ export async function handler(event) {
   if (!refId) return json(400, { error: "Missing ref parameter" });
 
   try {
+    // ---- local dev fallback
     if (isLocal) {
       try {
         const txt = await fs.readFile(path.join(LOCAL_DIR, `${refId}.json`), "utf8");
         return json(200, JSON.parse(txt));
-      } catch { return json(404, { error: "Not found" }); }
+      } catch {
+        return json(404, { error: "Not found (local)" });
+      }
     }
 
     const store = makeStore();
-    const key = `records/${refId}.json`;
-    const rec = await store.get(key, { type: "json" });
+    const candidates = [
+      `records/${refId}.json`,   // new layout
+      `main@${refId}.json`,      // legacy layout
+      `main@/${refId}.json`,     // legacy variant with slash
+    ];
+
+    let rec = null;
+    let keyUsed = null;
+    for (const key of candidates) {
+      rec = await store.get(key, { type: "json" });
+      if (rec) { keyUsed = key; break; }
+    }
+
     if (!rec) return json(404, { error: "Not found" });
 
-    // --- privacy-safe view tracking (best-effort, non-blocking)
+    // ---- privacy-safe view tracking
     try {
       const ip = clientIp(event.headers || {});
       rec.metrics = rec.metrics || { views: 0 };
@@ -66,11 +83,17 @@ export async function handler(event) {
         type: "view",
         ts: new Date().toISOString(),
         actor: "user",
-        ipHash: hashIp(ip),               // null if LOG_SALT not set
-        ipTrunc: truncIp(ip),             // e.g., "203.0.113.x"
+        ipHash: hashIp(ip),
+        ipTrunc: truncIp(ip),
       });
-      await store.set(key, JSON.stringify(rec), { contentType: "application/json" });
-    } catch { /* ignore */ }
+      if (keyUsed) {
+        await store.set(keyUsed, JSON.stringify(rec), {
+          contentType: "application/json",
+        });
+      }
+    } catch {
+      /* ignore tracking errors */
+    }
 
     return json(200, rec);
   } catch (e) {
