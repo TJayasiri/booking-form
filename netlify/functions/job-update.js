@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { makeStore } from "./_store.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -7,16 +7,7 @@ import { guard } from "./_guard.js"; // ← Rate‑limit guard (server side)
 const isLocal = process.env.NETLIFY_DEV === "true";
 const LOCAL_DIR = path.join(os.tmpdir(), "greenleaf-bookings");
 
-function makeStore() {
-  // In local dev, Blobs works without siteID/token too,
-  // but we keep a filesystem path for easy inspection.
-  if (isLocal) return getStore({ name: "bookings" });
-  return getStore({
-    name: "bookings",
-    siteID: process.env.NETLIFY_SITE_ID,
-    token: process.env.NETLIFY_API_TOKEN,
-  });
-}
+
 
 const baseHeaders = {
   "Content-Type": "application/json; charset=utf-8",

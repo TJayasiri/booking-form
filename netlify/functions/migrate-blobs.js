@@ -1,5 +1,5 @@
 // netlify/functions/migrate-blobs.js
-import { getStore } from "@netlify/blobs";
+import { makeStore } from "./_store.js";
 
 const H = { "Content-Type":"application/json; charset=utf-8",
             "Cache-Control":"no-store", "Access-Control-Allow-Origin":"*" };

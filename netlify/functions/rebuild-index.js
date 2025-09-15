@@ -1,14 +1,7 @@
 // netlify/functions/rebuild-index.js
-import { getStore } from "@netlify/blobs";
+import { makeStore } from "./_store.js";
 
-function makeStore() {
-  if (process.env.NETLIFY_DEV === "true") return getStore({ name: "bookings" });
-  return getStore({
-    name: "bookings",
-    siteID: process.env.NETLIFY_SITE_ID,
-    token: process.env.NETLIFY_API_TOKEN,
-  });
-}
+
 const H = { "Content-Type":"application/json; charset=utf-8", "Cache-Control":"no-store" };
 const j = (s, b) => ({ statusCode: s, headers: H, body: JSON.stringify(b) });
 

@@ -1,20 +1,13 @@
-import { getStore } from "@netlify/blobs";
+import { makeStore } from "./_store.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
+  
 
 const isLocal = process.env.NETLIFY_DEV === "true";
 const LOCAL_DIR = path.join(os.tmpdir(), "greenleaf-bookings");
 
-function makeStore() {
-  if (isLocal) return getStore({ name: "bookings" });
-  return getStore({
-    name: "bookings",
-    siteID: process.env.NETLIFY_SITE_ID,
-    token: process.env.NETLIFY_API_TOKEN,
-  });
-}
 
 function json(status, body) {
   return {

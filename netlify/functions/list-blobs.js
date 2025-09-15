@@ -1,12 +1,6 @@
 // netlify/functions/migrate-blobs.js
-import { getStore } from "@netlify/blobs";
+import { makeStore } from "./_store.js";
 
-function makeStore() {
-  // In Netlify (prod), implicit creds are injected. In Netlify Dev, also works implicitly.
-  // If you *really* need token/site id, you could wire them like in rebuild-index,
-  // but implicit is the simplest & recommended.
-  return getStore({ name: "bookings" });
-}
 
 const H = { "Content-Type":"application/json; charset=utf-8", "Cache-Control":"no-store" };
 const j = (s, b) => ({ statusCode: s, headers: H, body: JSON.stringify(b) });

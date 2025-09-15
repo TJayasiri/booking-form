@@ -1,5 +1,5 @@
 // netlify/functions/booking-print.js
-import { getStore } from "@netlify/blobs";
+import { makeStore } from "./_store.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -10,15 +10,7 @@ const isLocal = process.env.NETLIFY_DEV === "true";
 const LOCAL_DIR = path.join(os.tmpdir(), "greenleaf-bookings");
 
 // In production, talk to Blobs; in dev, we use the local JSON file written by save-booking
-function makeStore() {
-  if (isLocal) return null; // not used in dev
-  // Production: auto-config or explicit (both OK)
-  return getStore({
-    name: "bookings",
-    siteID: process.env.NETLIFY_SITE_ID,
-    token: process.env.NETLIFY_API_TOKEN,
-  });
-}
+
 
 /* -------- helpers -------- */
 const esc = (s = "") =>

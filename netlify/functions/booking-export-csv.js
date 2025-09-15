@@ -1,13 +1,4 @@
-import { getStore } from "@netlify/blobs";
-
-function makeStore() {
-  if (process.env.NETLIFY_DEV === "true") return getStore({ name: "bookings" });
-  return getStore({
-    name: "bookings",
-    siteID: process.env.NETLIFY_SITE_ID,
-    token: process.env.NETLIFY_API_TOKEN,
-  });
-}
+import { makeStore } from "./_store.js";
 
 function csvEscape(v) {
   if (v == null) return "";
@@ -80,7 +71,7 @@ export async function handler(event) {
   }
 
   try {
-    const store = makeStore();
+  
 
     // 1) Try fast path via index.json
     let rows = await readViaIndex(store);
