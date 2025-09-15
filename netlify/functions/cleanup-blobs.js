@@ -1,5 +1,5 @@
 // netlify/functions/cleanup-blobs.js
-import { getStore } from "@netlify/blobs";
+import { makeStore } from "./_store.js";
 
 const H = { "Content-Type":"application/json; charset=utf-8",
             "Cache-Control":"no-store", "Access-Control-Allow-Origin":"*" };
@@ -24,7 +24,8 @@ export async function handler(event) {
   } = body;
 
   try {
-    const store = getStore({ name: storeName });
+    // use the new store function
+    const store = makeStore();
 
     let cursor, deleted = [], kept = [];
     do {

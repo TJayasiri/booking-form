@@ -1,14 +1,6 @@
 // netlify/functions/booking-index.js
-import { getStore } from "@netlify/blobs";
+import { makeStore } from "./_store.js";
 
-function makeStore() {
-  if (process.env.NETLIFY_DEV === "true") return getStore({ name: "bookings" });
-  return getStore({
-    name: "bookings",
-    siteID: process.env.NETLIFY_SITE_ID,
-    token: process.env.NETLIFY_API_TOKEN,
-  });
-}
 
 function json(status, body, extra = {}) {
   return {

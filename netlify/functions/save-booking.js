@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { makeStore } from "./_store.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -20,19 +20,6 @@ const json = (status, body, extra = {}) => ({
   body: JSON.stringify(body),
 });
 
-const makeStore = () =>
-  isLocal
-    ? getStore({ name: "bookings" })
-    : getStore({
-        name: "bookings",
-        siteID: process.env.NETLIFY_SITE_ID,
-        token: process.env.NETLIFY_API_TOKEN,
-      });
-
-const isAdmin = (event) => {
-  const k = event.headers?.["x-admin-key"] || event.headers?.["X-Admin-Key"];
-  return k && process.env.ADMIN_KEY && k === process.env.ADMIN_KEY;
-};
 
 const getIp = (event) => {
   const h = event.headers || {};
