@@ -1,72 +1,76 @@
 // netlify/functions/migrate-blobs.js
 import { getStore } from "@netlify/blobs";
 
+const json = (status, body) => ({
+  statusCode: status,
+  headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+  body: JSON.stringify(body),
+});
+
 function makeStore() {
-  // In Netlify (prod), implicit creds are injected. In Netlify Dev, also works implicitly.
-  // If you *really* need token/site id, you could wire them like in rebuild-index,
-  // but implicit is the simplest & recommended.
+  // Works on Netlify (prod) and on recent Netlify CLI
+  // Falls back to explicit creds if provided locally
+  if (process.env.NETLIFY_SITE_ID && process.env.NETLIFY_API_TOKEN) {
+    return getStore({
+      name: "bookings",
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_API_TOKEN,
+    });
+  }
   return getStore({ name: "bookings" });
 }
 
-const H = { "Content-Type":"application/json; charset=utf-8", "Cache-Control":"no-store" };
-const j = (s, b) => ({ statusCode: s, headers: H, body: JSON.stringify(b) });
-
 export async function handler(event) {
-  // Auth
+  // auth
   const key = event.headers?.["x-admin-key"];
-  if (!key || key !== process.env.ADMIN_KEY) return j(401, { error: "Unauthorized" });
+  if (!key || key !== process.env.ADMIN_KEY) {
+    return json(401, { error: "Unauthorized" });
+  }
 
-  if (event.httpMethod !== "POST") return j(405, { error: "Method not allowed" });
-
+  // input
   let body = {};
-  try {
-    body = event.body ? JSON.parse(event.body) : {};
-  } catch {
-    return j(400, { error: "Invalid JSON body" });
-  }
-
-  const fromPrefix = (body.fromPrefix || "").trim();
-  const toPrefix   = (body.toPrefix   || "").trim();
-  const dryRun     = !!body.dryRun;
-
-  if (!fromPrefix || !toPrefix) {
-    return j(400, { error: "fromPrefix and toPrefix are required" });
-  }
-  if (fromPrefix === toPrefix) {
-    return j(400, { error: "fromPrefix and toPrefix must differ" });
-  }
+  try { body = JSON.parse(event.body || "{}"); } catch {}
+  const fromPrefix = body.fromPrefix ?? "main@";
+  const toPrefix = body.toPrefix ?? "records/";
+  const dryRun = !!body.dryRun;
 
   const store = makeStore();
 
+  const moved = [];
+  const skipped = [];
   let cursor;
-  const willMove = [];
-  do {
-    const res = await store.list({ prefix: fromPrefix, cursor });
-    cursor = res.cursor;
 
-    for (const b of res.blobs) {
-      // only migrate JSON booking records
-      if (!b.key.endsWith(".json")) continue;
+  try {
+    do {
+      const res = await store.list({ prefix: fromPrefix, cursor });
+      cursor = res.cursor;
 
-      const newKey = b.key.replace(fromPrefix, toPrefix);
-      willMove.push({ from: b.key, to: newKey });
-    }
-  } while (cursor);
+      for (const b of res.blobs) {
+        if (!b.key.endsWith(".json")) { skipped.push({ key: b.key, reason: "not-json" }); continue; }
 
-  if (dryRun) {
-    return j(200, { ok: true, dryRun: true, count: willMove.length, moves: willMove.slice(0, 50) });
+        // Extract ref id from the legacy key:
+        // examples: "main@GLB-…json" or "main@/GLB-…json"
+        const filename = b.key.replace(/^main@\/?/, "");
+        const refId = filename.replace(/\.json$/i, "");
+        const destKey = `${toPrefix}${refId}.json`;
+
+        if (dryRun) {
+          moved.push({ from: b.key, to: destKey, size: b.size });
+          continue;
+        }
+
+        // copy content then delete old
+        const buf = await store.get(b.key, { type: "stream" });
+        if (!buf) { skipped.push({ key: b.key, reason: "read-failed" }); continue; }
+
+        await store.set(destKey, buf, { contentType: "application/json" });
+        await store.delete(b.key);
+        moved.push({ from: b.key, to: destKey, size: b.size });
+      }
+    } while (cursor);
+
+    return json(200, { ok: true, dryRun, movedCount: moved.length, moved, skippedCount: skipped.length, skipped });
+  } catch (err) {
+    return json(500, { error: String(err?.message || err) });
   }
-
-  // Perform the copy/write, then delete the old key (safe move)
-  let moved = 0;
-  for (const { from, to } of willMove) {
-    const data = await store.get(from, { type: "arrayBuffer" });
-    if (!data) continue;
-
-    await store.set(to, data, { contentType: "application/json" });
-    await store.delete(from);
-    moved++;
-  }
-
-  return j(200, { ok: true, moved, fromPrefix, toPrefix });
 }
